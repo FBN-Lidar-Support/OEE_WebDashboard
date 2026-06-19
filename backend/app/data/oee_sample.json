@@ -1,0 +1,29 @@
+{
+  "date": "2026-06-16",
+  "machines": [
+    {
+      "machine": "AA",
+      "availability": 88.1,
+      "performance": 98.5,
+      "quality": 99.2,
+      "oee": 85.8,
+      "downtime": 2.5
+    },
+    {
+      "machine": "AB2B",
+      "availability": 75.0,
+      "performance": 97.8,
+      "quality": 98.9,
+      "oee": 72.5,
+      "downtime": 7.0
+    },
+    {
+      "machine": "iEOL",
+      "availability": 90.5,
+      "performance": 99.1,
+      "quality": 99.0,
+      "oee": 88.7,
+      "downtime": 3.0
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+gspread
+pandas
+google-auth
