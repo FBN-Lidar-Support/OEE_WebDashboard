@@ -1,5 +1,6 @@
 PLANNED_TIME = 21
 TARGET_OEE = 85
+
 def hours_to_time_format(hours):
     """
     Convert decimal hours to h:mm format.
@@ -15,35 +16,33 @@ def hours_to_time_format(hours):
         return f"{h}:{m:02d}"
     except Exception:
         return "0:00"
+    
 def calculate_oee(downtime_data, yield_data):
     result = []
+    print("="*50)
+    print(downtime_data)
+    print("="*50)
+    print(yield_data)
+    print("="*50)
     for machine, data in yield_data.items():
+        
         downtime = downtime_data.get(machine, 0)
-        operating_time = max(
-            PLANNED_TIME - downtime,
-            0.01
-        )
+        
+        operating_time = max(PLANNED_TIME - downtime, 0.01)
+        
         availability = operating_time / PLANNED_TIME
-        performance = (
-            data["total_last_opn"]
-            /
-            (
-                data["ideal_speed"]
-                * operating_time
-            )
-        )
-        quality = (
-            data["pass_last_opn"]
-            /
-            data["input_first_opn"]
-        )
+        
+        performance = (data["total_last_opn"] / (data["ideal_speed"] * operating_time))
+        
+        quality = (data["pass_last_opn"] / data["input_first_opn"])
+        
         oee = availability * performance * quality
+        
         oee_percent = round(oee * 100, 2)
+        
         result.append({
             "machine": machine,
-            # numeric ใช้สำหรับคำนวณ
             "downtime": round(downtime, 2),
-            # text ใช้สำหรับแสดงหน้าเว็บ
             "downtime_display": hours_to_time_format(downtime),
             "availability": round(availability * 100, 2),
             "performance": round(performance * 100, 2),
@@ -53,3 +52,4 @@ def calculate_oee(downtime_data, yield_data):
             "status": "PASS" if oee_percent >= TARGET_OEE else "FAIL"
         })
     return result
+
