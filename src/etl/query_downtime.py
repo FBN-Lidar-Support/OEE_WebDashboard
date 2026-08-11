@@ -1,438 +1,367 @@
 from __future__ import annotations
-from datetime import date, datetime, time as dt_time, timedelta
+from collections import defaultdict
+from datetime import date, timedelta, time as dt_time
 from io import StringIO
 import time
 import pandas as pd
 import requests
 
 # ============================================================
-# GOOGLE SHEET CONFIG
+# CONFIG
 # ============================================================
 SHEET_ID = "1GX-QmKKZivETF-5s77m0LNAfT0M8LxKm7i2nVqtxUY8"
 RAW_GID = "126900875"
-RAW_DATA_URL = (
-    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
-    f"/export?format=csv&gid={RAW_GID}"
-)
-MACHINES = ["AB2B", "AA", "IEOL"]
+RAW_DATA_URL = (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"f"/export?format=csv&gid={RAW_GID}")
 DAY_SHIFT_START = dt_time(7, 0)
 NIGHT_SHIFT_START = dt_time(19, 0)
+
 # ============================================================
-# TEXT CLEANING
+# DOWNLOAD GOOGLE SHEET
 # ============================================================
-def normalize_check_status(value) -> str | None:
-    """
-    แปลงค่า Check in / Check out ให้เป็นรูปแบบมาตรฐาน
-    """
+def download_raw_sheet():
+    cache_url = (RAW_DATA_URL + "&t=" + str(int(time.time())))
+    try:
+        response = requests.get(cache_url,timeout=30)
+        response.raise_for_status()
+    except Exception as e:
+        raise RuntimeError(f"Download Google Sheet Failed : {e}")
+    df = pd.read_csv(StringIO(response.text))
+    df.columns = (df.columns.astype(str).str.strip())
+    return df
+
+# ============================================================
+# NORMALIZE
+# ============================================================
+def normalize_check_status(value):
     if pd.isna(value):
         return None
-    text = str(value).strip().lower()
+    text = (str(value).lower().strip())
     text = " ".join(text.split())
-    check_in_values = {
-        "check in",
-        "checkin",
-        "in",
-        "start",
-    }
-    check_out_values = {
-        "check out",
-        "checkout",
-        "out",
-        "end",
-    }
-    if text in check_in_values:
+    if text in ["check in", "checkin", "start"]:
         return "check in"
-    if text in check_out_values:
+    if text in ["check out", "checkout", "end"]:
         return "check out"
     return None
-def parse_timestamp(value) -> pd.Timestamp:
+
+# ============================================================
+# PARSE TIMESTAMP
+# ============================================================
+def parse_timestamp(value):
     if pd.isna(value):
         return pd.NaT
-    text = str(value).strip().replace(",", "")
-    return pd.to_datetime(
-        text,
-        dayfirst=True,
-        errors="coerce",
-    )
+    text = str(value).strip()
+    formats = [
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %I:%M:%S %p",
+        "%d/%m/%Y %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S"
+    ]
+    for fmt in formats:
+        try:
+            return pd.to_datetime(text, format=fmt)
+        except Exception:
+            pass
+    return pd.NaT
+
 # ============================================================
-# SHIFT / PRODUCTION DATE
+# SHIFT
 # ============================================================
-def get_shift(timestamp: pd.Timestamp) -> str:
-    current_time = timestamp.time()
-    if DAY_SHIFT_START <= current_time < NIGHT_SHIFT_START:
+def get_shift(timestamp):
+    if DAY_SHIFT_START <= timestamp.time() < NIGHT_SHIFT_START:
         return "DAY"
     return "NIGHT"
-def get_production_date(timestamp: pd.Timestamp) -> date:
+
+# ============================================================
+# PRODUCTION DATE
+# ============================================================
+def get_production_date(timestamp):
     if timestamp.time() < DAY_SHIFT_START:
         return (timestamp - timedelta(days=1)).date()
     return timestamp.date()
+
 # ============================================================
-# MERGE OVERLAPPING DOWNTIME
+# CLEAN DATAFRAME
 # ============================================================
-def merge_intervals(intervals: list[tuple[pd.Timestamp, pd.Timestamp]]) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    if not intervals:
+def clean_dataframe(raw_df):
+    df = raw_df.copy()
+    ########################################################
+    df.columns = (df.columns.astype(str).str.strip())
+    ########################################################
+    df["Machine Name"] = (df["Machine Name"].astype(str).str.strip())
+    ########################################################
+    df["Type Downtime"] = (df["Type Downtime"].fillna("").astype(str).str.strip().replace(
+            {
+                "Other (Please Remark)": "Others",
+                "Others (Please explain in remark)": "Others"
+            }
+        )
+    )
+    ########################################################
+    df["Downtime Check in / Check out"] = (df["Downtime Check in / Check out"].apply(normalize_check_status))
+    ########################################################
+    df["Timestamp"] = (df["Timestamp"].apply(parse_timestamp))
+    ########################################################
+    df["Remark"] = (df["Remark"].fillna("").astype(str).str.strip())
+    ########################################################
+    df = df.dropna(subset=["Timestamp","Machine Name","Downtime Check in / Check out"])
+    ########################################################
+    df = (df.sort_values("Timestamp").reset_index(drop=True))
+    return df
+
+# ============================================================
+# GET MACHINE LIST
+# ============================================================
+def get_machine_list(df):
+    return sorted(df["Machine Name"].dropna().astype(str).str.strip().unique().tolist())
+
+# ============================================================
+# MERGE OVERLAP
+# ============================================================
+def merge_intervals(intervals):
+    if len(intervals) == 0:
         return []
-    intervals = sorted(intervals, key=lambda interval: interval[0],)
+    intervals = sorted(intervals, key=lambda x: x[0])
     merged = [intervals[0]]
-    for current_start, current_end in intervals[1:]:
+    for start, end in intervals[1:]:
         last_start, last_end = merged[-1]
-        if current_start <= last_end:
-            merged[-1] = (last_start, max(last_end, current_end))
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
         else:
-            merged.append((current_start, current_end))
+            merged.append((start, end))
     return merged
-def calculate_unique_downtime_hours(machine_df: pd.DataFrame) -> float:
+
+# ============================================================
+# UNIQUE DOWNTIME
+# ============================================================
+def calculate_unique_downtime_hours(machine_df):
     intervals = []
     for _, row in machine_df.iterrows():
-        start_datetime = row.get("Start_DateTime")
-        end_datetime = row.get("End_DateTime")
-        if pd.isna(start_datetime) or pd.isna(end_datetime):
-            continue
-        if end_datetime <= start_datetime:
-            continue
-        intervals.append((start_datetime, end_datetime))
-    merged_intervals = merge_intervals(intervals)
-    total_hours = sum((end_dt - start_dt).total_seconds() / 3600
-        for start_dt, end_dt in merged_intervals
-    )
-    return round(total_hours, 2)
-# ============================================================
-# READ GOOGLE SHEET
-# ============================================================
-def download_raw_sheet() -> pd.DataFrame:
-    cache_url = RAW_DATA_URL + "&t=" + str(int(time.time()))
-    try:
-        response = requests.get(cache_url, timeout=30)
-        response.encoding = "utf-8"
-        response.raise_for_status()
-    except requests.exceptions.ConnectionError as exc:
-        raise RuntimeError(
-            "Cannot connect to Google Sheets. "
-            "Please check internet connection."
-        ) from exc
-    except requests.exceptions.Timeout as exc:
-        raise RuntimeError(
-            "Google Sheets request timeout."
-        ) from exc
-    except requests.RequestException as exc:
-        raise RuntimeError(
-            f"Failed to read Google Sheets: {exc}"
-        ) from exc
-    if "<html" in response.text.lower():
-        raise RuntimeError(
-            "Google Sheets returned HTML instead of CSV. "
-            "Please check the sheet sharing permission."
-        )
-    df = pd.read_csv(StringIO(response.text))
-    # ลบช่องว่างในชื่อคอลัมน์
-    df.columns = (df.columns.astype(str).str.strip())
-    # print(df.to_string())
-    return df
+        intervals.append((row["Start_DateTime"], row["End_DateTime"]))
+    merged = merge_intervals(intervals)
+    total_hour = sum((end - start).total_seconds() / 3600 for start, end in merged)
+    return round(total_hour, 2)
+
 # ============================================================
 # PAIR CHECK IN / CHECK OUT
 # ============================================================
-def pair_checkin_checkout(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    
-    required_columns = {
-        "Timestamp",
-        "Machine Name",
-        "Downtime Check in / Check out",
-    }
-    missing_columns = required_columns - set(raw_df.columns)
-    if missing_columns:
-        raise ValueError(
-            "Missing required columns: "
-            + ", ".join(sorted(missing_columns))
-        )
-    df = raw_df.copy()
-    # หมายเลขแถวใน Google Sheet
-    df["Source_Row"] = df.index + 2
-    
-    # สร้างคอลัมน์ที่ไม่มี
-    optional_columns = [
-        "EN",
-        "Type Downtime",
-        "Remark",
-    ]
-    for column in optional_columns:
-        if column not in df.columns:
-            df[column] = ""
-    # Parse Timestamp
-    df["Timestamp"] = df["Timestamp"].apply(parse_timestamp)
-    # Clean Machine Name
-    df["Machine Name"] = (df["Machine Name"].astype("string").str.strip().str.upper())
-    # Clean Check Status
-    df["Check_Status"] = df["Downtime Check in / Check out"].apply(normalize_check_status)
-    # Clean other text
-    for column in [
-        "EN",
-        "Type Downtime",
-        "Remark",
-    ]:
-        df[column] = (df[column].fillna("").astype(str).str.strip())
-    validation_rows = []
-    # --------------------------------------------------------
-    # Validate Timestamp
-    # --------------------------------------------------------
-    invalid_timestamp_df = df[df["Timestamp"].isna()]
-    for _, row in invalid_timestamp_df.iterrows():
-        validation_rows.append({
-            "Source Row": row["Source_Row"],
-            "Machine Name": row["Machine Name"],
-            "Issue": "Invalid Timestamp",
-            "Detail": "Cannot convert Timestamp to datetime",
-        })
-    # --------------------------------------------------------
-    # Validate Machine
-    # --------------------------------------------------------
-    invalid_machine_df = df[
-        ~df["Machine Name"].isin(MACHINES)
-    ]
-    for _, row in invalid_machine_df.iterrows():
-        validation_rows.append({
-            "Source Row": row["Source_Row"],
-            "Machine Name": row["Machine Name"],
-            "Issue": "Invalid Machine",
-            "Detail": "Machine must be AB2B, AA or IEOL",
-        })
-    # --------------------------------------------------------
-    # Validate Check Status
-    # --------------------------------------------------------
-    invalid_check_df = df[df["Check_Status"].isna()]
-    for _, row in invalid_check_df.iterrows():
-        validation_rows.append({
-            "Source Row": row["Source_Row"],
-            "Machine Name": row["Machine Name"],
-            "Issue": "Invalid Downtime Check",
-            "Detail": (
-                f"Invalid value: {row['Downtime Check in / Check out']}"
-            ),
-        })
-    # ใช้เฉพาะแถวที่ถูกต้อง
-    valid_df = df[
-        df["Timestamp"].notna()
-        & df["Machine Name"].isin(MACHINES)
-        & df["Check_Status"].notna()
-    ].copy()
-    valid_df = valid_df.sort_values(
-        by=[
-            "Timestamp",
-            "Source_Row",
-        ]
-    ).reset_index(drop=True)
-    # เก็บ Check in ล่าสุดของแต่ละเครื่อง
-    active_checkins: dict[str, pd.Series] = {}
+def pair_checkin_checkout(raw_df):
+    df = clean_dataframe(raw_df)
+    active = defaultdict(list)
     downtime_rows = []
-    for _, row in valid_df.iterrows():
+    validation_rows = []
+    ########################################################
+    for idx, row in df.iterrows():
         machine = row["Machine Name"]
-        status = row["Check_Status"]
-        timestamp = row["Timestamp"]
-        # ====================================================
+        dtype = row["Type Downtime"]
+        action = row["Downtime Check in / Check out"]
+        key = (machine, dtype)
+        ####################################################
         # CHECK IN
-        # ====================================================
-        if status == "check in":
-            if machine in active_checkins:
-                previous_row = active_checkins[machine]
-                validation_rows.append({
-                    "Source Row": row["Source_Row"],
-                    "Machine Name": machine,
-                    "Issue": "Duplicate Check in",
-                    "Detail": (
-                        "A previous Check in is still waiting "
-                        "for Check out. New Check in replaces it."
-                    ),
-                })
-                # เก็บรายการเก่าเป็น Waiting Check out
-                downtime_rows.append({
-                    "Machine Name": machine,
-                    "EN": previous_row["EN"],
-                    "Downtime Type": previous_row[
-                        "Type Downtime"
-                    ],
-                    "Start_DateTime": previous_row[
-                        "Timestamp"
-                    ],
-                    "End_DateTime": pd.NaT,
-                    "Calculated_Downtime_Hours": pd.NA,
-                    "Production Date": get_production_date(
-                        previous_row["Timestamp"]
-                    ),
-                    "Shift": get_shift(
-                        previous_row["Timestamp"]
-                    ),
-                    "Remark": previous_row["Remark"],
-                    "Status": "Waiting Check out",
-                    "Check In Row": previous_row[
-                        "Source_Row"
-                    ],
-                    "Check Out Row": pd.NA,
-                })
-            active_checkins[machine] = row
-        # ====================================================
+        ####################################################
+        if action == "check in":
+            active[key].append(row)
+            continue
+        ####################################################
         # CHECK OUT
-        # ====================================================
-        elif status == "check out":
-            if machine not in active_checkins:
+        ####################################################
+        if action == "check out":
+            ################################################
+            if len(active[key]) == 0:
                 validation_rows.append({
-                    "Source Row": row["Source_Row"],
+                    "Row": idx + 2,
                     "Machine Name": machine,
                     "Issue": "Missing Check in",
-                    "Detail": (
-                        "Check out found without previous "
-                        "Check in for this machine."
-                    ),
+                    "Type": dtype
                 })
                 continue
-            checkin_row = active_checkins.pop(machine)
-            start_datetime = checkin_row["Timestamp"]
-            end_datetime = timestamp
-            if end_datetime <= start_datetime:
+            ################################################
+            checkin = active[key].pop()
+            ################################################
+            start = checkin["Timestamp"]
+            end = row["Timestamp"]
+            ################################################
+            if end <= start:
                 validation_rows.append({
-                    "Source Row": row["Source_Row"],
+                    "Row": idx + 2,
                     "Machine Name": machine,
                     "Issue": "Invalid Time Range",
-                    "Detail": (
-                        "Check out must be later than Check in."
-                    ),
+                    "Type": dtype
                 })
                 continue
-            downtime_hours = (end_datetime - start_datetime).total_seconds() / 3600
-            downtime_type = checkin_row["Type Downtime"]
-            if downtime_type == "":
-                downtime_type = row["Type Downtime"]
-            remarks = [value for value in [checkin_row["Remark"], row["Remark"]] if value]
-            record_status = "Complete"
-            # แจ้งเตือนกรณี Downtime เกิน 24 ชั่วโมง
-            if downtime_hours > 24:
-                record_status = "Check Duration"
+            ################################################
+            downtime_hour = round(
+                (end - start).total_seconds() / 3600, 2)
+            ################################################
+            # Warning
+            ################################################
+            warning = ""
+            if downtime_hour > 24:
+                warning = "Long Downtime"
                 validation_rows.append({
-                    "Source Row": row["Source_Row"],
+                    "Row": idx + 2,
                     "Machine Name": machine,
-                    "Issue": "Long Downtime",
-                    "Detail": (
-                        f"Downtime is {downtime_hours:.2f} hr. "
-                        "Please verify."
-                    ),
+                    "Issue": warning,
+                    "Type": dtype,
+                    "Downtime(hr)": downtime_hour
                 })
+            ################################################
             downtime_rows.append({
                 "Machine Name": machine,
-                "EN": checkin_row["EN"],
-                "Downtime Type": downtime_type,
-                "Start_DateTime": start_datetime,
-                "End_DateTime": end_datetime,
-                "Calculated_Downtime_Hours": round(
-                    downtime_hours,
-                    2,
-                ),
-                "Production Date": get_production_date(
-                    start_datetime
-                ),
-                "Shift": get_shift(
-                    start_datetime
-                ),
-                "Remark": " | ".join(remarks),
-                "Status": record_status,
-                "Check In Row": checkin_row[
-                    "Source_Row"
-                ],
-                "Check Out Row": row[
-                    "Source_Row"
-                ],
+                "Type Downtime": dtype,
+                "Production Date": get_production_date(start),
+                "Shift": get_shift(start),
+                "Start_DateTime": start,
+                "End_DateTime": end,
+                "Downtime(hr)": downtime_hour,
+                "Checkin EN": checkin["EN"],
+                "Checkout EN": row["EN"],
+                "Remark Start": checkin["Remark"],
+                "Remark End": row["Remark"],
+                "Warning": warning
             })
-    # ========================================================
-    # REMAINING CHECK IN WITHOUT CHECK OUT
-    # ========================================================
-    for machine, checkin_row in active_checkins.items():
-        start_datetime = checkin_row["Timestamp"]
-        validation_rows.append({
-            "Source Row": checkin_row["Source_Row"],
-            "Machine Name": machine,
-            "Issue": "Waiting Check out",
-            "Detail": (
-                "Check in has not been followed by Check out."
-            ),
-        })
-        downtime_rows.append({
-            "Machine Name": machine,
-            "EN": checkin_row["EN"],
-            "Downtime Type": checkin_row[
-                "Type Downtime"
-            ],
-            "Start_DateTime": start_datetime,
-            "End_DateTime": pd.NaT,
-            "Calculated_Downtime_Hours": pd.NA,
-            "Production Date": get_production_date(
-                start_datetime
-            ),
-            "Shift": get_shift(
-                start_datetime
-            ),
-            "Remark": checkin_row["Remark"],
-            "Status": "Waiting Check out",
-            "Check In Row": checkin_row[
-                "Source_Row"
-            ],
-            "Check Out Row": pd.NA,
-        })
+    ########################################################
+    # Waiting Check out
+    ########################################################
+    for key, stack in active.items():
+        machine, dtype = key
+        while stack:
+            checkin = stack.pop()
+            validation_rows.append({
+                "Row": "-",
+                "Machine Name": machine,
+                "Issue": "Waiting Check out",
+                "Type": dtype,
+                "Checkin Time": checkin["Timestamp"]
+            })
+    ########################################################
     downtime_df = pd.DataFrame(downtime_rows)
     validation_df = pd.DataFrame(validation_rows)
-    if not downtime_df.empty:
-        downtime_df = downtime_df.sort_values(
-            by=[
-                "Production Date",
-                "Machine Name",
-                "Start_DateTime",
-            ]
-        ).reset_index(drop=True)
-    if not validation_df.empty:
-        validation_df = validation_df.sort_values(by="Source Row").reset_index(drop=True)
     return downtime_df, validation_df
+
 # ============================================================
-# MAIN READ FUNCTION
+# DOWNTIME TYPE SUMMARY
 # ============================================================
-def read_raw_downtime_sheet() -> pd.DataFrame:
+def summarize_downtime_type(downtime_df, machine, min_hour=0.083):
+    machine_df = downtime_df[downtime_df["Machine Name"] == machine]
+    if machine_df.empty:
+        return {}
+    summary = (machine_df.groupby("Type Downtime")["Downtime(hr)"].sum().sort_values(ascending=False))
+    print(summary)
+    result = {}
+    other_hour = 0
+    for dtype, hour in summary.items():
+        if hour >= min_hour:
+            result[dtype] = round(hour, 2)
+        else:
+            other_hour += hour
+    if other_hour > 0:
+        result["Others"] = round(other_hour, 2)
+    return result
+# ============================================================
+# READ RAW SHEET
+# ============================================================
+def read_raw_downtime_sheet():
     raw_df = download_raw_sheet()
     downtime_df, validation_df = pair_checkin_checkout(raw_df)
+    target_date = date.today() - timedelta(days=1)
+    ####################################################
+    # Filter เฉพาะ Production Date ที่จะทำ Report
+    ####################################################
+    downtime_df = downtime_df[downtime_df["Production Date"] == target_date].copy()
+    ####################################################
+    # Validation เฉพาะของวันนั้น
+    ####################################################
     if not validation_df.empty:
-        print("\nDowntime validation warning:")
-        print(validation_df.to_string(index=False))
+        validation_df = validation_df[(validation_df.get("Checkin Time").dt.date.fillna(target_date) == target_date)]
+        if not validation_df.empty:
+            print("\nDowntime Validation")
+            print(validation_df.to_string(index=False))
     return downtime_df
+
 # ============================================================
-# YESTERDAY RESULT
+# YESTERDAY DOWNTIME
 # ============================================================
 def get_downtime_yesterday():
+    # Raw ทั้งหมด (ไม่กรองวันที่)
+    raw_df = clean_dataframe(download_raw_sheet())
+    # ใช้แค่ดึงชื่อเครื่อง
+    # machines = get_machine_list(raw_df)
+    machines = ["AB2B", "AA", "IEOL SHORT", "IEOL LONG"]
+    # ข้อมูลเมื่อวาน
     df = read_raw_downtime_sheet()
+    
     target_date = date.today() - timedelta(days=1)
-
-    if df.empty:
-        result = {
-            machine: 0.0
-            for machine in MACHINES
-        }
-        print("Target Date:", target_date)
-        print("Downtime Result:", result)
-        return result, target_date
-
-    completed_df = df[df["Status"].isin(["Complete", "Check Duration"])].copy()
-
-    yesterday_df = completed_df[completed_df["Production Date"] == target_date].copy()
+    
     result = {}
-    for machine in MACHINES:
-        machine_df = yesterday_df[yesterday_df["Machine Name"] == machine]
-        downtime = calculate_unique_downtime_hours(machine_df)
-        result[machine] = round(
-            downtime,
-            2,
-        )
+    downtime_type = {}
+    for machine in machines:
+        machine_df = df[df["Machine Name"] == machine]
+        result[machine] = calculate_unique_downtime_hours(machine_df)
+        downtime_type[machine] = summarize_downtime_type(df, machine)
+    return (result, downtime_type, df, target_date)
+    
+# ============================================================
+# VALIDATION SUMMARY
+# ============================================================
+def print_validation_summary(validation_df):
     print()
-    print("Target Date:", target_date)
-    print("Downtime Result:")
-    for machine, downtime in result.items():
-        print(f"{machine}: {downtime:.2f} hr")
-    return result, target_date
-
-# # ============================================================
-# # TEST
-# # ============================================================
+    print("=" * 60)
+    print("Validation Summary")
+    print("=" * 60)
+    if validation_df.empty:
+        print("No Validation Issue.")
+        return
+    print(validation_df.groupby("Issue").size().to_string())
+    print()
+    print(validation_df.to_string(index=False))
+# ============================================================
+# DOWNTIME SUMMARY
+# ============================================================
+def print_downtime_summary(downtime_df):
+    print()
+    print("=" * 60)
+    print("Downtime Summary")
+    print("=" * 60)
+    if downtime_df.empty:
+        print("No Downtime Record")
+        return
+    summary = (downtime_df.groupby("Machine Name")["Downtime(hr)"].sum().round(2))
+    print(summary)
+    print()
+    print("Total Downtime :",round(downtime_df["Downtime(hr)"].sum(), 2), "hr")
+    print("Total Event :",len(downtime_df))
+# ============================================================
+# DEBUG
+# ============================================================
+def debug():
+    raw_df = download_raw_sheet()
+    downtime_df, validation_df = pair_checkin_checkout(raw_df)
+    print_validation_summary(validation_df)
+    print_downtime_summary(downtime_df)
+    print()
+    print("=" * 60)
+    print("Downtime Data")
+    print("=" * 60)
+    print(downtime_df.to_string(index=False))
+# ============================================================
+# TEST
+# ============================================================
 # if __name__ == "__main__":
-#     downtime_result, production_date = (get_downtime_yesterday())
+#     # debug()
+#     # print()
+#     (downtime_result, downtime_type, downtime_df, production_date) = get_downtime_yesterday()
+#     print(downtime_result)
+#     print("=" * 60)
+#     print("Yesterday Result")
+#     print("=" * 60)
+#     print("Production Date :", production_date)
+#     print()
+#     print("Downtime")
+#     for machine, hour in downtime_result.items():
+#         print(f"{machine:6s}"f" : {hour:.2f} hr")
+#     print()
+#     print("Downtime Type")
+#     for machine, value in downtime_type.items():
+#         print(machine)
+#         print(value)
+#         print()

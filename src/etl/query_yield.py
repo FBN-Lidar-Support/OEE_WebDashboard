@@ -72,7 +72,8 @@ def get_yield_yesterday():
     AB2B = df.loc[df['operation_id'].isin(['IN400', 'IN405', 'IN410', 'IN412', 'IN415', 'IN420', 'IN425'])]
     AA_FAS_SAS = df.loc[df['operation_id'].isin(['IN450', 'IN460', 'IN485', 'IN490', 'IN500'])]
     AA_TP = df.loc[df['operation_id'].isin(['IN510','IN520'])]
-    EOL = df.loc[df['operation_id'].isin(['FA200', 'FA210', 'FA220', 'FA230', 'FA235', 'FA240', 'FA250', 'FA255', 'FA260', 'FA270', 'FA280'])]
+    IEOL_S = df.loc[df['operation_id'].isin(['FA210', 'FA220', 'FA230'])]
+    IEOL_L = df.loc[df['operation_id'].isin(['FA235', 'FA240', 'FA250', 'FA255', 'FA260', 'FA270'])]
     
     AB2B_input_first_opn        = int(AB2B.iloc[0]["total"])
     AB2B_total_last_opn         = int(AB2B.iloc[-1]["total"])
@@ -86,34 +87,39 @@ def get_yield_yesterday():
     AA_TP_total_last_opn        = int(AA_TP.iloc[-1]["total"])
     AA_TP_pass_last_opn         = int(AA_TP.iloc[-1]["pass"])
     
-    EOL_input_first_opn         = int(EOL.iloc[0]["total"])
-    EOL_total_last_opn          = int(EOL.iloc[-1]["total"])
-    EOL_pass_last_opn           = int(EOL.iloc[-1]["pass"])
+    EOL_S_input_first_opn         = int(IEOL_S.iloc[0]["total"])
+    EOL_S_total_last_opn          = int(IEOL_S.iloc[-1]["total"])
+    EOL_S_pass_last_opn           = int(IEOL_S.iloc[-1]["pass"])
+    
+    EOL_L_input_first_opn         = int(IEOL_L.iloc[0]["total"])
+    EOL_L_total_last_opn          = int(IEOL_L.iloc[-1]["total"])
+    EOL_L_pass_last_opn           = int(IEOL_L.iloc[-1]["pass"])
     
     return {
         "AB2B": {
             "input_first_opn":  AB2B_input_first_opn,
             "total_last_opn":   AB2B_total_last_opn,
-            "pass_last_opn":    AB2B_pass_last_opn,
-            "ideal_speed":      4.19,
+            "pass_last_opn":    AB2B_pass_last_opn
         },
         "AA_FAS_SAS": {
             "input_first_opn":  AA_FAS_SAS_input_first_opn,
             "total_last_opn":   AA_FAS_SAS_total_last_opn,
-            "pass_last_opn":    AA_FAS_SAS_pass_last_opn,
-            "ideal_speed":      2.43,
+            "pass_last_opn":    AA_FAS_SAS_pass_last_opn
         },
         "AA_TP": {
             "input_first_opn":  AA_TP_input_first_opn,
             "total_last_opn":   AA_TP_total_last_opn,
-            "pass_last_opn":    AA_TP_pass_last_opn,
-            "ideal_speed":      5.41,
+            "pass_last_opn":    AA_TP_pass_last_opn
         },
-        "iEOL": {
-            "input_first_opn":  EOL_input_first_opn,
-            "total_last_opn":   EOL_total_last_opn,
-            "pass_last_opn":    EOL_pass_last_opn,
-            "ideal_speed":      0.43,
+        "IEOL_SHORT": {
+            "input_first_opn":  EOL_S_input_first_opn,
+            "total_last_opn":   EOL_S_total_last_opn,
+            "pass_last_opn":    EOL_S_pass_last_opn
+        },
+        "IEOL_LONG": {
+            "input_first_opn":  EOL_L_input_first_opn,
+            "total_last_opn":   EOL_L_total_last_opn,
+            "pass_last_opn":    EOL_L_pass_last_opn,
         }
     }
     
