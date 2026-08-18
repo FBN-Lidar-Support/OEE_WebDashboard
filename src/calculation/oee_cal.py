@@ -117,14 +117,17 @@ def calculate_oee(downtime_data, yield_data):
         ####################################################
         oee = (availability * performance * quality)
         oee_percent = round(oee * 100, 2)
+        a_percent = round(availability * 100, 2)
+        p_percent = round(performance * 100, 2)
+        q_percent = round(quality * 100, 2)
         ####################################################
         # Result
         ####################################################
         result[machine_name] = {
             "oee": oee_percent,
-            "availability": round(availability * 100, 2),
-            "performance": round(performance * 100, 2),
-            "quality": round(quality * 100, 2),
+            "availability":a_percent,
+            "performance":p_percent,
+            "quality": q_percent,
             "downtime": round(downtime, 2),
             "downtime_display": hours_to_time_format(downtime),
             "target": {
@@ -133,7 +136,10 @@ def calculate_oee(downtime_data, yield_data):
                 "performance": TARGET_P,
                 "quality": TARGET_Q,
             },
-            "status": ("ACHIEVED" if oee_percent >= TARGET_OEE else "BELOW TARGET"),
+            "oee_status": ("ACHIEVED" if oee_percent >= TARGET_OEE else "BELOW TARGET"),
+            "a_status": ("ACHIEVED" if a_percent >= TARGET_A else "BELOW TARGET"),
+            "p_status": ("ACHIEVED" if p_percent >= TARGET_P else "BELOW TARGET"),
+            "q_status": ("ACHIEVED" if q_percent >= TARGET_Q else "BELOW TARGET"),
             "detail": detail
         }
     return result

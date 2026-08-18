@@ -42,7 +42,7 @@ class PowerPointExporter:
             print("Chart OEE_COMPARE not found")
             return
         chart_data = CategoryChartData()
-        chart_data.categories = ("AB2B", "AA", "IEOL_SHORT","IEOL_LONG")
+        chart_data.categories = ("AB2B", "AA", "IEOL_SHORT", "IEOL_LONG")
         chart_data.add_series(
             "Actual",
             (
@@ -57,7 +57,8 @@ class PowerPointExporter:
             (
                 float(report_data["target_oee"]),
                 float(report_data["target_oee"]),
-                float(report_data["target_oee"])
+                float(report_data["target_oee"]),
+                float(report_data["target_oee"]),
             )
         )
         chart.replace_data(chart_data)
@@ -135,7 +136,7 @@ class PowerPointExporter:
             if "Production Time" in str(category):
                 point = series.points[idx]
                 point.format.fill.solid()
-                point.format.fill.fore_color.rgb = RGBColor(0, 176, 80)
+                point.format.fill.fore_color.rgb = RGBColor(0, 204, 102)
                 break
         # =====================================================
         # Green Pie when No Downtime
@@ -143,7 +144,7 @@ class PowerPointExporter:
         if len(downtime_type) == 0:
             point = chart.series[0].points[0]
             point.format.fill.solid()
-            point.format.fill.fore_color.rgb = RGBColor(0, 176, 80)
+            point.format.fill.fore_color.rgb = RGBColor(0, 204, 102)
             
     # ==========================================================
     # Update All Charts
@@ -243,21 +244,21 @@ class PowerPointExporter:
         ####################################################
         # RESULT COLOR
         ####################################################
-        self._update_status_shape(prs, "AB2B_RESULT_BOX", report_data["AB2B"]["Status"])
+        self._update_status_shape(prs, "AB2B", report_data["AB2B"]["Status"])
         if not report_data["AB2B"]["DowntimeType"]:
-            self._update_status_shape(prs, "AB2B_DT_STATUS", report_data["AB2B"]["DowntimeType"])
+            self._update_dt_shape_color(prs, "AB2B_DT_STATUS", report_data["AB2B"]["DowntimeType"])
             
         self._update_status_shape(prs, "AA_RESULT_BOX", report_data["AA"]["Status"])
         if not report_data["AA"]["DowntimeType"]:
-            self._update_status_shape(prs, "AA_DT_STATUS", report_data["AA"]["DowntimeType"])
+            self._update_dt_shape_color(prs, "AA_DT_STATUS", report_data["AA"]["DowntimeType"])
             
-        self._update_status_shape(prs, "IEOL_RESULT_BOX", report_data["IEOL_SHORT"]["Status"])
+        self._update_status_shape(prs, "IEOL_S_RESULT_BOX", report_data["IEOL_SHORT"]["Status"])
         if not report_data["IEOL_SHORT"]["DowntimeType"]:
-            self._update_status_shape(prs, "IEOL_DT_STATUS", report_data["IEOL_SHORT"]["DowntimeType"])
+            self._update_dt_shape_color(prs, "IEOL_DT_STATUS", report_data["IEOL_SHORT"]["DowntimeType"])
 
-        self._update_status_shape(prs, "IEOL_RESULT_BOX", report_data["IEOL_LONG"]["Status"])
+        self._update_status_shape(prs, "IEOL_L_RESULT_BOX", report_data["IEOL_LONG"]["Status"])
         if not report_data["IEOL_LONG"]["DowntimeType"]:
-            self._update_status_shape(prs, "IEOL_DT_STATUS", report_data["IEOL_LONG"]["DowntimeType"])
+            self._update_dt_shape_color(prs, "IEOL_DT_STATUS", report_data["IEOL_LONG"]["DowntimeType"])
         ####################################################
         # Charts
         ####################################################

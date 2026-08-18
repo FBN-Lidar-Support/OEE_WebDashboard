@@ -215,7 +215,10 @@ def generate_machine_summary(oee_result, downtime_data):
             "quality": quality,
             "downtime": hours_to_time(downtime),
             "target": item["target"],
-            "OEE_status": item["status"],
+            "OEE_status": item["oee_status"],
+            "A_status": item["a_status"],
+            "P_status": item["p_status"],
+            "Q_status": item["q_status"],
             "main_loss": {
                 "category": loss_name,
                 "value": loss_value
