@@ -8,15 +8,15 @@ def main():
     print("="*20, " downtime_data ", "="*20)
     (downtime_data, downtime_type, downtime_df, production_date) = get_downtime_yesterday()
     print("Production Date:\t", production_date)
-    print("Downtime")
+    print("====================== downtime_data ======================")
     for machine, hour in downtime_data.items():
         print(f"{machine:6s}"f" : {hour:.2f} hr")
-    print()
-    print("Downtime Type")
+    print("====================== Downtime Type ======================")
     for machine, value in downtime_type.items():
         print(machine)
         print(value)
-        print()
+    print("====================== downtime df ======================")
+    print(downtime_df)
 
     # 2. ดึงข้อมูล Yield
     print("="*20, " Yield_data ", "="*20)
