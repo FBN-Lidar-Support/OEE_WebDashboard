@@ -159,24 +159,24 @@ def get_downtime_by_date(production_date: date):
         machine_df = downtime_df[downtime_df["Machine Name"] == machine_name]
         downtime_data[machine_name] = (calculate_unique_downtime_hours(machine_df))
         downtime_type[machine_name] = (summarize_downtime_type(downtime_df, machine_name,))
-    return (downtime_data, downtime_type, downtime_df)
+    return downtime_data, downtime_type, downtime_df
 
 def get_downtime_yesterday():
     production_date = (date.today() - timedelta(days=1))
-    (downtime_data, downtime_type, downtime_df,) = get_downtime_by_date(production_date)
-    return (downtime_data, downtime_type, downtime_df, production_date)
+    downtime_data, downtime_type, downtime_df = get_downtime_by_date(production_date)
+    return downtime_data, downtime_type, downtime_df, production_date
 
-if __name__ == "__main__":
-    (downtime_data,downtime_type,downtime_df,production_date,) = get_downtime_yesterday()
-    print("Production Date:",production_date)
-    print("\nDowntime Data")
-    for machine, hour in (downtime_data.items()):
-        print(f"{machine:15s}: "f"{hour:.2f} hr")
-    print("\nDowntime Type")
-    for machine, values in (downtime_type.items()):
-        print(machine,values)
-    print("\nDowntime DF")
-    print(downtime_df.to_string(index=False)
-        if not downtime_df.empty
-        else "Empty DataFrame"
-    )
+# if __name__ == "__main__":
+#     downtime_data, downtime_type, downtime_df, production_date = get_downtime_yesterday()
+#     print("Production Date:",production_date)
+#     print("\nDowntime Data")
+#     for machine, hour in (downtime_data.items()):
+#         print(f"{machine:15s}: "f"{hour:.2f} hr")
+#     print("\nDowntime Type")
+#     for machine, values in (downtime_type.items()):
+#         print(machine,values)
+#     print("\nDowntime DF")
+#     print(downtime_df.to_string(index=False)
+#         if not downtime_df.empty
+#         else "Empty DataFrame"
+#     )

@@ -1,0 +1,2409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<title>OEE Smart Analytics Dashboard</title>
+
+<style>
+:root {
+    --bg:#f3f6f8;
+    --panel:#fff;
+    --green:#008b5a;
+    --green-dark:#006b45;
+    --green-soft:#e7f5ef;
+    --text:#1f2937;
+    --muted:#6b7280;
+    --border:#dfe4e8;
+    --danger:#dc2626;
+    --danger-soft:#fef2f2;
+    --warning:#d97706;
+    --warning-soft:#fff7ed;
+    --blue:#2563eb;
+    --blue-soft:#eff6ff;
+    --purple:#7c3aed;
+    --shadow:0 4px 16px rgba(0,0,0,.06);
+}
+
+* { box-sizing:border-box; }
+
+html,body {
+    margin:0;
+    min-height:100%;
+}
+
+body {
+    font-family:Arial,Helvetica,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+}
+
+button,input { font-family:inherit; }
+
+/* ================= HEADER ================= */
+
+.header {
+    height:76px;
+    padding:0 28px;
+    background:linear-gradient(135deg,var(--green-dark),var(--green));
+    color:#fff;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:20px;
+    position:relative;
+    z-index:100;
+}
+
+.header-title h1 {
+    margin:0;
+    font-size:30px;
+    line-height:1;
+}
+
+.header-title p {
+    margin:7px 0 0;
+    font-size:14px;
+    opacity:.9;
+}
+
+.header-controls {
+    display:flex;
+    align-items:center;
+    gap:10px;
+}
+
+/* ================= DATE PICKER ================= */
+
+.date-picker { position:relative; }
+
+.date-button {
+    height:42px;
+    min-width:175px;
+    padding:0 13px;
+    border:0;
+    border-radius:8px;
+    background:#fff;
+    color:var(--text);
+    font-size:15px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    cursor:pointer;
+}
+
+.date-button:hover { background:#f8fafc; }
+
+.date-button:focus-visible {
+    outline:3px solid rgba(255,255,255,.45);
+    outline-offset:2px;
+}
+
+.calendar-icon {
+    font-size:16px;
+    line-height:1;
+}
+
+.calendar-popup {
+    position:absolute;
+    top:50px;
+    right:0;
+    width:355px;
+    padding:15px;
+    background:#fff;
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:12px;
+    box-shadow:0 12px 35px rgba(0,0,0,.18);
+    z-index:1000;
+    display:none;
+}
+
+.calendar-popup.open { display:block; }
+
+.calendar-header {
+    display:grid;
+    grid-template-columns:40px 1fr 40px;
+    align-items:center;
+    gap:7px;
+    margin-bottom:12px;
+}
+
+.calendar-month-title {
+    text-align:center;
+    font-size:17px;
+    font-weight:700;
+}
+
+.calendar-nav {
+    width:40px;
+    height:40px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:#fff;
+    color:var(--text);
+    font-size:20px;
+    cursor:pointer;
+}
+
+.calendar-nav:hover { background:#f3f4f6; }
+
+.calendar-weekdays,
+.calendar-days {
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    gap:5px;
+}
+
+.calendar-weekdays { margin-bottom:5px; }
+
+.calendar-weekday {
+    padding:5px 0;
+    text-align:center;
+    color:var(--muted);
+    font-size:11px;
+    font-weight:700;
+}
+
+.calendar-day {
+    position:relative;
+    aspect-ratio:1;
+    border:1px solid transparent;
+    border-radius:8px;
+    background:#f3f4f6;
+    color:#b0b5bd;
+    font-size:13px;
+    font-weight:600;
+    cursor:not-allowed;
+}
+
+.calendar-day.empty { visibility:hidden; }
+
+.calendar-day.available {
+    background:var(--green-soft);
+    color:var(--green-dark);
+    cursor:pointer;
+}
+
+.calendar-day.available:hover {
+    background:#d8f0e5;
+    border-color:var(--green);
+}
+
+.calendar-day.latest:not(.selected)::after {
+    content:"";
+    position:absolute;
+    bottom:5px;
+    left:50%;
+    width:5px;
+    height:5px;
+    transform:translateX(-50%);
+    background:var(--green);
+    border-radius:50%;
+}
+
+.calendar-day.selected {
+    background:var(--green);
+    color:#fff;
+    border-color:var(--green-dark);
+    cursor:pointer;
+}
+
+.calendar-footer {
+    margin-top:12px;
+    padding-top:11px;
+    border-top:1px solid var(--border);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+}
+
+.calendar-legend {
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    color:var(--muted);
+    font-size:10px;
+}
+
+.calendar-legend-row {
+    display:flex;
+    align-items:center;
+    gap:6px;
+}
+
+.calendar-dot {
+    width:9px;
+    height:9px;
+    border-radius:3px;
+}
+
+.calendar-dot.available {
+    background:var(--green-soft);
+    border:1px solid var(--green);
+}
+
+.calendar-dot.unavailable { background:#e5e7eb; }
+
+.latest-button {
+    min-height:34px;
+    padding:0 10px;
+    border:1px solid var(--green);
+    border-radius:7px;
+    background:#fff;
+    color:var(--green-dark);
+    font-size:11px;
+    font-weight:700;
+    cursor:pointer;
+}
+
+.latest-button:hover { background:var(--green-soft); }
+
+/* ================= REFRESH ================= */
+
+.refresh-button {
+    height:42px;
+    padding:0 20px;
+    border:0;
+    border-radius:8px;
+    background:#fff;
+    color:var(--green-dark);
+    font-size:15px;
+    font-weight:700;
+    cursor:pointer;
+}
+
+.refresh-button:hover { background:#f0fdf4; }
+
+.refresh-button:disabled {
+    opacity:.55;
+    cursor:not-allowed;
+}
+
+/* ================= MAIN ================= */
+
+.container {
+    width:100%;
+    max-width:1920px;
+    margin:0 auto;
+    padding:14px 24px 12px;
+}
+
+.status-line {
+    min-height:34px;
+    margin-bottom:10px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    font-size:14px;
+}
+
+.production-period { color:var(--muted); }
+.production-period strong { color:var(--text); }
+
+.status-badge {
+    display:inline-flex;
+    align-items:center;
+    min-height:30px;
+    padding:5px 12px;
+    border-radius:18px;
+    font-size:12px;
+    font-weight:700;
+}
+
+.status-demo {
+    background:var(--blue-soft);
+    color:var(--blue);
+}
+
+.status-connected {
+    background:var(--green-soft);
+    color:var(--green-dark);
+}
+
+.status-loading {
+    background:var(--warning-soft);
+    color:var(--warning);
+}
+
+.status-error {
+    background:var(--danger-soft);
+    color:var(--danger);
+}
+
+.section { margin-bottom:12px; }
+
+.section-title {
+    margin:0;
+    font-size:21px;
+    line-height:1.2;
+    font-weight:700;
+}
+
+.panel {
+    min-width:0;
+    padding:16px 18px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    box-shadow:var(--shadow);
+}
+
+/* ================= MACHINE PERFORMANCE ================= */
+
+.machine-section-header,
+.detail-title-row {
+    min-height:36px;
+    margin-bottom:8px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+}
+
+.machine-nav {
+    display:flex;
+    gap:7px;
+}
+
+.machine-nav button {
+    width:36px;
+    height:36px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:#fff;
+    color:var(--text);
+    font-size:20px;
+    cursor:pointer;
+}
+
+.machine-nav button:hover { background:#f8fafc; }
+
+.machine-nav button:disabled {
+    opacity:.3;
+    cursor:not-allowed;
+}
+
+/* Minimal horizontal scrollbar */
+.machine-grid {
+    display:flex;
+    gap:14px;
+    overflow-x:auto;
+    overflow-y:hidden;
+    padding:2px 2px 7px;
+    scroll-behavior:smooth;
+    scroll-snap-type:x mandatory;
+    scrollbar-width:thin;
+    scrollbar-color:#b7bec7 transparent;
+    overscroll-behavior-x:contain;
+}
+
+.machine-grid::-webkit-scrollbar { height:5px; }
+
+.machine-grid::-webkit-scrollbar-track {
+    background:transparent;
+}
+
+.machine-grid::-webkit-scrollbar-thumb {
+    background:#b7bec7;
+    border-radius:20px;
+}
+
+.machine-grid::-webkit-scrollbar-thumb:hover {
+    background:#7f8996;
+}
+
+.machine-card {
+    flex:0 0 calc((100% - 28px) / 3);
+    min-width:340px;
+    padding:16px 18px;
+    scroll-snap-align:start;
+    background:#fff;
+    border:2px solid transparent;
+    border-radius:12px;
+    box-shadow:var(--shadow);
+    cursor:pointer;
+    transition:border-color .18s,box-shadow .18s,transform .18s;
+}
+
+.machine-card:hover {
+    transform:translateY(-2px);
+    box-shadow:0 7px 22px rgba(0,0,0,.09);
+}
+
+.machine-card.selected {
+    border-color:var(--green);
+    box-shadow:0 5px 20px rgba(0,139,90,.16);
+}
+
+.machine-title {
+    margin-bottom:2px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+}
+
+.machine-name {
+    font-size:22px;
+    line-height:1.1;
+    font-weight:700;
+}
+
+.machine-status {
+    font-size:12px;
+    font-weight:700;
+    text-align:right;
+}
+
+.pass { color:var(--green); }
+.fail { color:var(--danger); }
+
+.oee-number {
+    margin:5px 0 12px;
+    font-size:46px;
+    line-height:1;
+    font-weight:700;
+}
+
+.metric-row { margin-top:9px; }
+
+.metric-header {
+    margin-bottom:5px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    font-size:15px;
+}
+
+.metric-header .target {
+    margin-left:5px;
+    color:var(--muted);
+    font-size:11px;
+    font-weight:400;
+}
+
+.bar-bg {
+    height:9px;
+    background:#e5e7eb;
+    border-radius:10px;
+    overflow:hidden;
+}
+
+.bar-fill {
+    height:100%;
+    background:var(--green);
+    border-radius:10px;
+}
+
+.bar-fail { background:var(--danger); }
+
+.machine-footer {
+    margin-top:12px;
+    padding-top:10px;
+    border-top:1px solid var(--border);
+    color:var(--muted);
+    font-size:14px;
+    line-height:1.55;
+}
+
+.machine-footer strong { color:var(--text); }
+
+/* ================= MACHINE DETAIL ================= */
+
+.detail-period {
+    color:var(--muted);
+    font-size:13px;
+}
+
+.detail-grid {
+    display:grid;
+    grid-template-columns:minmax(310px,.86fr) minmax(390px,1.12fr) minmax(460px,1.45fr);
+    gap:14px;
+    min-height:0;
+}
+
+.detail-grid .panel {
+    height:100%;
+    min-height:0;
+    overflow:visible;
+}
+
+.panel-title {
+    margin:0 0 10px;
+    font-size:20px;
+    line-height:1.2;
+    font-weight:700;
+}
+
+/* ================= DONUT ================= */
+
+.donut-layout {
+    height:100%;
+    display:flex;
+    flex-direction:column;
+}
+
+.donut-wrap {
+    position:relative;
+    width:250px;
+    height:250px;
+    margin:4px auto 12px;
+    flex:0 0 auto;
+}
+
+.donut-svg {
+    width:100%;
+    height:100%;
+    transform:rotate(-90deg);
+}
+
+.donut-background {
+    fill:none;
+    stroke:#edf0f2;
+    stroke-width:24;
+}
+
+.donut-segment {
+    fill:none;
+    stroke-width:24;
+    stroke-linecap:butt;
+}
+
+.donut-center {
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    pointer-events:none;
+}
+
+.donut-center-machine {
+    max-width:170px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    color:var(--muted);
+    font-size:14px;
+    font-weight:700;
+}
+
+.donut-center-value {
+    margin-top:4px;
+    font-size:40px;
+    line-height:1;
+    font-weight:700;
+}
+
+.donut-center-label {
+    margin-top:5px;
+    color:var(--muted);
+    font-size:13px;
+}
+
+.donut-legend {
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+
+.donut-legend-row {
+    display:grid;
+    grid-template-columns:13px 1fr auto;
+    align-items:center;
+    gap:9px;
+    font-size:14px;
+}
+
+.legend-color {
+    width:12px;
+    height:12px;
+    border-radius:3px;
+}
+
+.legend-value {
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+}
+
+/* ================= DOWNTIME ================= */
+
+.downtime-total {
+    margin-bottom:14px;
+    color:var(--muted);
+    font-size:14px;
+}
+
+.downtime-total strong {
+    color:var(--text);
+    font-size:16px;
+}
+
+.downtime-row { margin-bottom:14px; }
+
+.downtime-header {
+    margin-bottom:6px;
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    font-size:15px;
+}
+
+.downtime-name {
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.downtime-hours {
+    font-weight:700;
+    white-space:nowrap;
+}
+
+.downtime-detail-bar {
+    width:100%;
+    height:11px;
+    background:#edf0f2;
+    border-radius:10px;
+    overflow:hidden;
+}
+
+.downtime-detail-fill {
+    height:100%;
+    background:var(--purple);
+    border-radius:10px;
+}
+
+.overlap-note {
+    margin-top:14px;
+    padding:10px 12px;
+    background:var(--warning-soft);
+    border-radius:8px;
+    color:#92400e;
+    font-size:13px;
+    line-height:1.4;
+}
+
+/* ================= SMART INSIGHT ================= */
+
+.insight-scroll {
+    width:100%;
+    display:grid;
+    grid-template-columns:1.25fr .85fr 1.25fr;
+    gap:14px;
+    align-items:start;
+    overflow:visible;
+}
+
+.insight-group {
+    min-width:0;
+    margin:0;
+}
+
+.insight-group-title {
+    margin-bottom:7px;
+    color:var(--muted);
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:.4px;
+    text-transform:uppercase;
+}
+
+.insight {
+    margin-bottom:7px;
+    padding:8px 10px;
+    border-left:4px solid var(--green);
+    border-radius:6px;
+    background:var(--green-soft);
+    font-size:13px;
+    line-height:1.3;
+    white-space:normal;
+    overflow-wrap:anywhere;
+}
+
+.insight.focus {
+    border-left-color:var(--warning);
+    background:var(--warning-soft);
+}
+
+.insight.action {
+    border-left-color:var(--blue);
+    background:var(--blue-soft);
+}
+
+/* ================= PRODUCTION DETAIL ================= */
+
+.production-detail {
+    margin-top:10px;
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:10px;
+}
+
+.detail-item {
+    min-width:0;
+    padding:10px 12px;
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:9px;
+}
+
+.detail-label {
+    margin-bottom:3px;
+    color:var(--muted);
+    font-size:12px;
+}
+
+.detail-value {
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:15px;
+    font-weight:700;
+    line-height:1.3;
+}
+
+.empty-message {
+    padding:32px 10px;
+    text-align:center;
+    color:var(--muted);
+    font-size:14px;
+}
+
+.data-warning {
+    padding:14px;
+    border:1px solid #fed7aa;
+    border-radius:8px;
+    background:var(--warning-soft);
+    color:#9a3412;
+    font-size:14px;
+    line-height:1.4;
+}
+
+.footer {
+    margin-top:14px;
+    padding:10px 0;
+    border-top:1px solid var(--border);
+    color:var(--muted);
+    text-align:center;
+    font-size:11px;
+}
+
+/* ================= LINE DISPLAY ================= */
+
+@media (min-width:1200px) and (min-height:700px) {
+    html,body {
+        width:100%;
+        height:100%;
+        overflow:hidden;
+    }
+
+    .container {
+        height:calc(100vh - 76px);
+        display:grid;
+        grid-template-rows:auto auto minmax(0,1fr);
+        overflow:hidden;
+    }
+
+    .status-line { margin-bottom:8px; }
+    #machineSection { margin-bottom:8px; }
+
+    #detailSection {
+        min-height:0;
+        margin-bottom:0;
+        display:grid;
+        grid-template-rows:auto minmax(0,1fr) auto;
+    }
+
+    .detail-grid { min-height:0; }
+    .footer { display:none; }
+}
+
+/* ================= RESPONSIVE ================= */
+
+@media (max-width:1200px) {
+    .machine-card { flex:0 0 calc((100% - 14px) / 2); }
+    .detail-grid { grid-template-columns:1fr 1fr; }
+    .insight-panel { grid-column:1/-1; }
+}
+
+@media (max-width:800px) {
+    .header {
+        height:auto;
+        padding:14px 16px;
+        flex-wrap:wrap;
+    }
+
+    .header-controls { width:100%; }
+    .date-picker { flex:1; }
+    .date-button { width:100%; }
+
+    .calendar-popup {
+        right:auto;
+        left:0;
+        width:min(355px,calc(100vw - 32px));
+    }
+
+    .container { padding:12px; }
+    .detail-grid { grid-template-columns:1fr; }
+    .insight-panel { grid-column:auto; }
+    .insight-scroll { grid-template-columns:1fr; }
+    .production-detail { grid-template-columns:1fr 1fr; }
+}
+
+@media (max-width:650px) {
+    .machine-card {
+        flex:0 0 92%;
+        min-width:280px;
+    }
+
+    .production-detail { grid-template-columns:1fr; }
+
+    .donut-wrap {
+        width:225px;
+        height:225px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header class="header">
+    <div class="header-title">
+        <h1>OEE Smart Analytics Dashboard</h1>
+        <p>Individual Machine Performance Monitoring</p>
+    </div>
+
+    <div class="header-controls">
+        <div id="datePicker" class="date-picker">
+            <button id="dateButton" class="date-button" type="button"
+                    aria-haspopup="dialog" aria-expanded="false">
+                <span id="dateButtonText">Loading...</span>
+                <span class="calendar-icon" aria-hidden="true">▣</span>
+            </button>
+
+            <div id="calendarPopup" class="calendar-popup"
+                 role="dialog" aria-label="Select production date">
+                <div class="calendar-header">
+                    <button id="calendarPrev" class="calendar-nav" type="button"
+                            aria-label="Previous month">‹</button>
+
+                    <div id="calendarMonthTitle" class="calendar-month-title">-</div>
+
+                    <button id="calendarNext" class="calendar-nav" type="button"
+                            aria-label="Next month">›</button>
+                </div>
+
+                <div class="calendar-weekdays">
+                    <div class="calendar-weekday">Su</div>
+                    <div class="calendar-weekday">Mo</div>
+                    <div class="calendar-weekday">Tu</div>
+                    <div class="calendar-weekday">We</div>
+                    <div class="calendar-weekday">Th</div>
+                    <div class="calendar-weekday">Fr</div>
+                    <div class="calendar-weekday">Sa</div>
+                </div>
+
+                <div id="calendarDays" class="calendar-days"></div>
+
+                <div class="calendar-footer">
+                    <div class="calendar-legend">
+                        <div class="calendar-legend-row">
+                            <span class="calendar-dot available"></span>
+                            Data available
+                        </div>
+
+                        <div class="calendar-legend-row">
+                            <span class="calendar-dot unavailable"></span>
+                            No data
+                        </div>
+                    </div>
+
+                    <button id="latestDateButton" class="latest-button" type="button">
+                        Latest Data
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <button id="refreshButton" class="refresh-button" type="button">
+            Refresh
+        </button>
+    </div>
+</header>
+
+<main class="container">
+    <div class="status-line">
+        <div class="production-period">
+            Production Date: <strong id="productionDateText">-</strong>
+            &nbsp; | &nbsp;
+            Period: <strong id="periodText">-</strong>
+        </div>
+
+        <div id="connectionStatus" class="status-badge status-loading">
+            Loading...
+        </div>
+    </div>
+
+    <section id="machineSection" class="section">
+        <div class="machine-section-header">
+            <div class="section-title">Machine Performance</div>
+
+            <div class="machine-nav">
+                <button id="machinePrev" type="button"
+                        aria-label="Previous machines">‹</button>
+                <button id="machineNext" type="button"
+                        aria-label="Next machines">›</button>
+            </div>
+        </div>
+
+        <div id="machineCards" class="machine-grid"></div>
+    </section>
+
+    <section id="detailSection" class="section">
+        <div class="detail-title-row">
+            <div id="machineDetailTitle" class="section-title">
+                Machine Detail
+            </div>
+
+            <div class="detail-period">
+                Production day: 19:00 → 19:00
+            </div>
+        </div>
+
+        <div class="detail-grid">
+            <div class="panel">
+                <div class="panel-title">24-Hour Time Overview</div>
+
+                <div class="donut-layout">
+                    <div id="donutContainer"></div>
+                    <div id="donutLegend"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Downtime Detail</div>
+                <div id="downtimeDetail"></div>
+            </div>
+
+            <div class="panel insight-panel">
+                <div class="panel-title">Smart Insight</div>
+                <div id="insightList" class="insight-scroll"></div>
+            </div>
+        </div>
+
+        <div id="productionDetail" class="production-detail"></div>
+    </section>
+
+    <footer class="footer">
+        OEE Dashboard | Read-only Production Monitoring
+    </footer>
+</main>
+
+<script>
+"use strict";
+
+/* ================= CONFIG ================= */
+
+const USE_DEMO_DATA = false;
+const API_URL = "/api/oee/dashboard";
+const DATES_API_URL = "/api/oee/dates";
+const API_TIMEOUT_MS = 10000;
+const DAY_HOURS = 24;
+
+const NORMAL_COLOR = "#008b5a";
+const DOWNTIME_COLOR = "#dc2626";
+
+const DEMO_AVAILABLE_DATES = [
+    "2026-09-18",
+    "2026-09-19",
+    "2026-09-20",
+    "2026-09-21"
+];
+
+/* ================= STATE ================= */
+
+let currentData = null;
+let machineEntries = [];
+let selectedMachineIndex = 0;
+let selectedMachineName = "";
+
+let availableDates = [];
+let availableDateSet = new Set();
+let latestAvailableDate = "";
+let selectedDate = "";
+let calendarViewYear = 0;
+let calendarViewMonth = 0;
+
+/* ================= DEMO DATA ================= */
+
+const demoData = {
+    overall:{
+        production_date:"2026-09-21"
+    },
+
+    machines:{
+        AB2B:{
+            oee:22.78,
+            availability:100.0,
+            performance:23.87,
+            quality:95.45,
+            downtime:"0:00",
+            downtime_detail:{},
+
+            target:{
+                oee:80,
+                availability:95,
+                performance:86,
+                quality:98
+            },
+
+            OEE_status:"BELOW TARGET",
+            A_status:"ACHIEVED",
+            P_status:"BELOW TARGET",
+            Q_status:"BELOW TARGET",
+
+            main_loss:{
+                category:"Performance",
+                value:76.13
+            },
+
+            summary:[
+                "OEE was 22.78%, below target.",
+                "Performance was 23.87%.",
+                "Quality was 95.45%.",
+                "No downtime was recorded.",
+                "Main loss : Performance (76.13%)."
+            ],
+
+            focus:[
+                "Improve cycle time",
+                "Reduce defects"
+            ],
+
+            action:[
+                "Review machine speed and operator loading.",
+                "Investigate NG trend.",
+                "Optimize machine cycle time and eliminate minor stops."
+            ],
+
+            detail:{
+                input_first_opn:22,
+                output_last_opn:21,
+                pass_last_opn:21,
+                ideal_speed:"4.19 unit / hrs."
+            }
+        },
+
+        AA:{
+            oee:24.88,
+            availability:100.0,
+            performance:24.88,
+            quality:100.0,
+            downtime:"0:00",
+            downtime_detail:{},
+
+            target:{
+                oee:80,
+                availability:95,
+                performance:86,
+                quality:98
+            },
+
+            OEE_status:"BELOW TARGET",
+            A_status:"ACHIEVED",
+            P_status:"BELOW TARGET",
+            Q_status:"ACHIEVED",
+
+            main_loss:{
+                category:"Performance",
+                value:75.12
+            },
+
+            summary:[
+                "OEE was 24.88%, below target.",
+                "Performance was 24.88%.",
+                "No downtime was recorded.",
+                "Main loss : Performance (75.12%)."
+            ],
+
+            focus:[
+                "Improve cycle time"
+            ],
+
+            action:[
+                "Review machine speed and operator loading.",
+                "Optimize machine cycle time and eliminate minor stops."
+            ],
+
+            detail:{
+                input_first_opn:{FAS_SAS:20,TP:12},
+                output_last_opn:{FAS_SAS:20,TP:12},
+                pass_last_opn:{FAS_SAS:20,TP:12},
+
+                ideal_speed:{
+                    FAS_SAS:"2.43 unit / hrs.",
+                    TP:"5.41 unit / hrs."
+                }
+            }
+        },
+
+        IEOL_SHORT:{
+            oee:117.92,
+            availability:100.0,
+            performance:143.19,
+            quality:82.35,
+            downtime:"0:00",
+            downtime_detail:{},
+
+            target:{
+                oee:80,
+                availability:95,
+                performance:86,
+                quality:98
+            },
+
+            OEE_status:"ACHIEVED",
+            A_status:"ACHIEVED",
+            P_status:"ACHIEVED",
+            Q_status:"BELOW TARGET",
+
+            main_loss:{
+                category:"Quality",
+                value:17.65
+            },
+
+            summary:[
+                "OEE achieved 117.92% and met the target.",
+                "Quality was 82.35%.",
+                "No downtime was recorded.",
+                "Main loss : Quality (17.65%)."
+            ],
+
+            focus:[
+                "Reduce defects"
+            ],
+
+            action:[
+                "Investigate NG trend.",
+                "Perform root cause analysis for defects."
+            ],
+
+            detail:{
+                input_first_opn:51,
+                output_last_opn:43,
+                pass_last_opn:42,
+                ideal_speed:"1.43 unit / hrs."
+            }
+        },
+
+        IEOL_LONG:{
+            oee:116.28,
+            availability:57.14,
+            performance:203.49,
+            quality:100.0,
+            downtime:"9:00",
+
+            downtime_detail:{
+                "Customer Used":5.0,
+                "Calibrate Machine":3.0,
+                "Material Shortage":2.0
+            },
+
+            target:{
+                oee:80,
+                availability:95,
+                performance:86,
+                quality:98
+            },
+
+            OEE_status:"ACHIEVED",
+            A_status:"BELOW TARGET",
+            P_status:"ACHIEVED",
+            Q_status:"ACHIEVED",
+
+            main_loss:{
+                category:"Availability",
+                value:42.86
+            },
+
+            summary:[
+                "OEE achieved 116.28% and met the target.",
+                "Availability dropped to 57.14%.",
+                "Downtime totaled 9:00.",
+                "Main loss : Availability (42.86%)."
+            ],
+
+            focus:[
+                "Reduce downtime"
+            ],
+
+            action:[
+                "Review downtime records.",
+                "Coordinate with Maintenance to improve equipment uptime."
+            ],
+
+            detail:{
+                input_first_opn:21,
+                output_last_opn:21,
+                pass_last_opn:21,
+                ideal_speed:"0.86 unit / hrs."
+            }
+        }
+    }
+};
+
+/* ================= INITIALIZE ================= */
+
+async function initializeDashboard() {
+    const refreshButton = document.getElementById("refreshButton");
+    refreshButton.disabled = true;
+    setConnectionStatus("Loading...","loading");
+
+    try {
+        availableDates = normalizeAvailableDates(await loadAvailableDates());
+        availableDateSet = new Set(availableDates);
+
+        if (!availableDates.length) {
+            latestAvailableDate = "";
+            selectedDate = "";
+            setDateButtonText("No Data");
+            clearDashboard();
+            setConnectionStatus("No OEE Data","error");
+            renderCalendar();
+            return;
+        }
+
+        latestAvailableDate = availableDates[availableDates.length - 1];
+        selectedDate = latestAvailableDate;
+
+        setCalendarViewFromDate(selectedDate);
+        updateDateButton();
+        renderCalendar();
+
+        await loadDashboard(selectedDate);
+
+    } catch (error) {
+        console.error("Initialization error:",error);
+        clearDashboard();
+        setDateButtonText("Data Error");
+        setConnectionStatus("Backend Error","error");
+
+    } finally {
+        refreshButton.disabled = false;
+    }
+}
+
+/* ================= AVAILABLE DATES ================= */
+
+async function loadAvailableDates() {
+    if (USE_DEMO_DATA) return [...DEMO_AVAILABLE_DATES];
+
+    const data = await fetchJSON(DATES_API_URL);
+
+    if (Array.isArray(data)) return data;
+    if (isObject(data) && Array.isArray(data.dates)) return data.dates;
+
+    throw new Error("Invalid dates API response");
+}
+
+function normalizeAvailableDates(dates) {
+    if (!Array.isArray(dates)) return [];
+
+    const unique = new Set();
+
+    dates.forEach(date => {
+        if (typeof date === "string" && isValidDateFormat(date)) unique.add(date);
+    });
+
+    return Array.from(unique).sort();
+}
+
+/* ================= CALENDAR ================= */
+
+function toggleCalendar() {
+    const popup = document.getElementById("calendarPopup");
+    const button = document.getElementById("dateButton");
+    const opening = !popup.classList.contains("open");
+
+    if (opening) {
+        if (selectedDate) setCalendarViewFromDate(selectedDate);
+        else if (latestAvailableDate) setCalendarViewFromDate(latestAvailableDate);
+
+        renderCalendar();
+    }
+
+    popup.classList.toggle("open",opening);
+    button.setAttribute("aria-expanded",String(opening));
+}
+
+function closeCalendar() {
+    document.getElementById("calendarPopup").classList.remove("open");
+    document.getElementById("dateButton").setAttribute("aria-expanded","false");
+}
+
+function changeCalendarMonth(offset) {
+    calendarViewMonth += offset;
+
+    if (calendarViewMonth < 0) {
+        calendarViewMonth = 11;
+        calendarViewYear--;
+    }
+
+    if (calendarViewMonth > 11) {
+        calendarViewMonth = 0;
+        calendarViewYear++;
+    }
+
+    renderCalendar();
+}
+
+function setCalendarViewFromDate(dateText) {
+    const parts = parseDateParts(dateText);
+    if (!parts) return;
+
+    calendarViewYear = parts.year;
+    calendarViewMonth = parts.month - 1;
+}
+
+function renderCalendar() {
+    const title = document.getElementById("calendarMonthTitle");
+    const container = document.getElementById("calendarDays");
+
+    container.replaceChildren();
+
+    if (!calendarViewYear) {
+        if (latestAvailableDate) {
+            setCalendarViewFromDate(latestAvailableDate);
+        } else {
+            const now = new Date();
+            calendarViewYear = now.getFullYear();
+            calendarViewMonth = now.getMonth();
+        }
+    }
+
+    title.textContent = getMonthName(calendarViewYear,calendarViewMonth);
+
+    const firstDay = new Date(
+        Date.UTC(calendarViewYear,calendarViewMonth,1)
+    ).getUTCDay();
+
+    const daysInMonth = new Date(
+        Date.UTC(calendarViewYear,calendarViewMonth + 1,0)
+    ).getUTCDate();
+
+    for (let i = 0; i < firstDay; i++) {
+        const blank = document.createElement("button");
+        blank.type = "button";
+        blank.className = "calendar-day empty";
+        blank.tabIndex = -1;
+        container.appendChild(blank);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateText = buildDateText(
+            calendarViewYear,
+            calendarViewMonth + 1,
+            day
+        );
+
+        const hasData = availableDateSet.has(dateText);
+        const isSelected = dateText === selectedDate;
+        const isLatest = dateText === latestAvailableDate;
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = String(day);
+        button.className = "calendar-day";
+
+        if (hasData) {
+            button.classList.add("available");
+            button.disabled = false;
+            button.title = `View OEE data for ${dateText}`;
+            button.addEventListener("click",() => selectProductionDate(dateText));
+        } else {
+            button.disabled = true;
+            button.title = "No OEE data available";
+        }
+
+        if (isLatest) button.classList.add("latest");
+
+        if (isSelected) {
+            button.classList.add("selected");
+            button.setAttribute("aria-current","date");
+        }
+
+        container.appendChild(button);
+    }
+}
+
+async function selectProductionDate(dateText) {
+    if (!availableDateSet.has(dateText)) return;
+
+    selectedDate = dateText;
+    setCalendarViewFromDate(selectedDate);
+    updateDateButton();
+    renderCalendar();
+    closeCalendar();
+
+    await loadDashboard(selectedDate);
+}
+
+async function selectLatestDate() {
+    if (!latestAvailableDate) return;
+    await selectProductionDate(latestAvailableDate);
+}
+
+function updateDateButton() {
+    setDateButtonText(
+        selectedDate ? formatDisplayDate(selectedDate) : "No Data"
+    );
+}
+
+function setDateButtonText(text) {
+    document.getElementById("dateButtonText").textContent = text;
+}
+
+/* ================= REFRESH ================= */
+
+async function refreshDashboard() {
+    const button = document.getElementById("refreshButton");
+    button.disabled = true;
+
+    try {
+        availableDates = normalizeAvailableDates(await loadAvailableDates());
+        availableDateSet = new Set(availableDates);
+
+        latestAvailableDate = availableDates.length
+            ? availableDates[availableDates.length - 1]
+            : "";
+
+        if (selectedDate && availableDateSet.has(selectedDate)) {
+            updateDateButton();
+            renderCalendar();
+            await loadDashboard(selectedDate);
+            return;
+        }
+
+        if (latestAvailableDate) {
+            selectedDate = latestAvailableDate;
+            setCalendarViewFromDate(selectedDate);
+            updateDateButton();
+            renderCalendar();
+            await loadDashboard(selectedDate);
+            return;
+        }
+
+        selectedDate = "";
+        setDateButtonText("No Data");
+        clearDashboard();
+        setConnectionStatus("No OEE Data","error");
+        renderCalendar();
+
+    } catch (error) {
+        console.error("Refresh error:",error);
+        setConnectionStatus("Backend Error","error");
+
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/* ================= DASHBOARD LOAD ================= */
+
+async function loadDashboard(productionDate) {
+    if (!productionDate || !isValidDateFormat(productionDate)) {
+        setConnectionStatus("Invalid Date","error");
+        return;
+    }
+
+    setConnectionStatus("Loading...","loading");
+
+    try {
+        let data;
+
+        if (USE_DEMO_DATA) {
+            data = JSON.parse(JSON.stringify(demoData));
+            data.overall.production_date = productionDate;
+            setConnectionStatus("Demo Data","demo");
+        } else {
+            data = await fetchDashboardData(productionDate);
+            setConnectionStatus("Backend Connected","connected");
+        }
+
+        if (!isObject(data)) throw new Error("Invalid dashboard response");
+
+        renderDashboard(data);
+
+    } catch (error) {
+        console.error("Dashboard load error:",error);
+        clearDashboard();
+        setConnectionStatus("Data Error","error");
+    }
+}
+
+/* ================= API ================= */
+
+async function fetchDashboardData(productionDate) {
+    const params = new URLSearchParams();
+    params.set("date",productionDate);
+
+    return await fetchJSON(`${API_URL}?${params.toString()}`);
+}
+
+async function fetchJSON(url) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(),API_TIMEOUT_MS);
+
+    try {
+        const response = await fetch(url,{
+            method:"GET",
+            headers:{"Accept":"application/json"},
+            credentials:"same-origin",
+            cache:"no-store",
+            signal:controller.signal
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const type = response.headers.get("content-type") || "";
+
+        if (!type.includes("application/json")) {
+            throw new Error("Backend did not return JSON");
+        }
+
+        return await response.json();
+
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+/* ================= RENDER DASHBOARD ================= */
+
+function renderDashboard(data) {
+    currentData = data;
+
+    const overall = isObject(data.overall) ? data.overall : {};
+    const machines = isObject(data.machines) ? data.machines : {};
+
+    machineEntries = Object.entries(machines)
+        .filter(([,machine]) => isObject(machine));
+
+    const backendDate = normalizeDate(overall.production_date);
+    const productionDate = backendDate || selectedDate;
+
+    setText("productionDateText",productionDate || "-");
+
+    if (productionDate) {
+        const period = getProductionPeriod(productionDate);
+        setText("periodText",`${period.start} - ${period.end}`);
+    } else {
+        setText("periodText","-");
+    }
+
+    if (selectedMachineName) {
+        const index = machineEntries.findIndex(
+            ([name]) => name === selectedMachineName
+        );
+
+        selectedMachineIndex = index >= 0 ? index : 0;
+    } else {
+        selectedMachineIndex = 0;
+    }
+
+    renderMachineCards();
+
+    if (machineEntries.length) {
+        const [name,machine] = machineEntries[selectedMachineIndex];
+        selectedMachineName = name;
+        renderMachineDetail(name,machine);
+    } else {
+        clearMachineDetail();
+    }
+
+    requestAnimationFrame(updateMachineNav);
+}
+
+/* ================= MACHINE CARDS ================= */
+
+function renderMachineCards() {
+    const container = document.getElementById("machineCards");
+    container.replaceChildren();
+
+    if (!machineEntries.length) {
+        container.appendChild(createEmptyMessage("No machine data available."));
+        return;
+    }
+
+    machineEntries.forEach(([name,machine],index) => {
+        const target = isObject(machine.target) ? machine.target : {};
+        const detail = isObject(machine.detail) ? machine.detail : {};
+
+        const oee = toSafeNumber(machine.oee);
+        const oeeTarget = toSafeNumber(target.oee);
+        const achieved = getStatus(machine.OEE_status,oee,oeeTarget);
+
+        const card = document.createElement("div");
+
+        card.className =
+            `machine-card${index === selectedMachineIndex ? " selected" : ""}`;
+
+        card.tabIndex = 0;
+
+        card.innerHTML = `
+            <div class="machine-title">
+                <div class="machine-name">${escapeHTML(name)}</div>
+
+                <div class="machine-status ${achieved ? "pass" : "fail"}">
+                    ${escapeHTML(machine.OEE_status || "-")}
+                </div>
+            </div>
+
+            <div class="oee-number ${achieved ? "pass" : "fail"}">
+                ${formatPercent(oee)}
+            </div>
+
+            ${metricBar(
+                "Availability",
+                machine.availability,
+                target.availability,
+                machine.A_status
+            )}
+
+            ${metricBar(
+                "Performance",
+                machine.performance,
+                target.performance,
+                machine.P_status
+            )}
+
+            ${metricBar(
+                "Quality",
+                machine.quality,
+                target.quality,
+                machine.Q_status
+            )}
+
+            <div class="machine-footer">
+                OEE Target:
+                <strong>${formatPercent(oeeTarget)}</strong><br>
+
+                Output:
+                <strong>${escapeHTML(
+                    formatDetailValue(detail.output_last_opn)
+                )}</strong><br>
+
+                Downtime:
+                <strong>${escapeHTML(machine.downtime || "0:00")} hr</strong><br>
+
+                Main Loss:
+                <strong>${escapeHTML(
+                    machine.main_loss?.category || "-"
+                )}</strong>
+            </div>
+        `;
+
+        card.addEventListener("click",() => selectMachine(index));
+
+        card.addEventListener("keydown",event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                selectMachine(index);
+            }
+        });
+
+        container.appendChild(card);
+    });
+}
+
+function metricBar(label,value,target,status) {
+    const number = toSafeNumber(value);
+    const targetNumber = toSafeNumber(target);
+    const achieved = getStatus(status,number,targetNumber);
+
+    const width = number === null
+        ? 0
+        : Math.min(Math.max(number,0),100);
+
+    return `
+        <div class="metric-row">
+            <div class="metric-header">
+                <span>
+                    ${escapeHTML(label)}
+                    <span class="target">
+                        Target ${formatPercent(targetNumber)}
+                    </span>
+                </span>
+
+                <strong class="${achieved ? "pass" : "fail"}">
+                    ${formatPercent(number)}
+                </strong>
+            </div>
+
+            <div class="bar-bg">
+                <div class="bar-fill ${achieved ? "" : "bar-fail"}"
+                     style="width:${width}%"></div>
+            </div>
+        </div>
+    `;
+}
+
+function getStatus(status,value,target) {
+    if (typeof status === "string" && status.trim()) {
+        return status.toUpperCase() === "ACHIEVED";
+    }
+
+    return value !== null && target !== null && value >= target;
+}
+
+function selectMachine(index) {
+    if (!machineEntries[index]) return;
+
+    selectedMachineIndex = index;
+
+    const [name,machine] = machineEntries[index];
+    selectedMachineName = name;
+
+    document.querySelectorAll(".machine-card").forEach((card,i) => {
+        card.classList.toggle("selected",i === index);
+    });
+
+    renderMachineDetail(name,machine);
+}
+
+/* ================= MACHINE SCROLL ================= */
+
+function scrollMachineCards(direction) {
+    const container = document.getElementById("machineCards");
+    const card = container.querySelector(".machine-card");
+
+    if (!card) return;
+
+    container.scrollBy({
+        left:direction * (card.getBoundingClientRect().width + 14),
+        behavior:"smooth"
+    });
+}
+
+/*
+    Mouse wheel:
+    Wheel down  -> scroll cards right
+    Wheel up    -> scroll cards left
+*/
+function enableMachineWheelScroll() {
+    const grid = document.getElementById("machineCards");
+
+    grid.addEventListener("wheel",event => {
+        const canScroll = grid.scrollWidth > grid.clientWidth;
+        if (!canScroll) return;
+
+        const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+            ? event.deltaY
+            : event.deltaX;
+
+        if (!delta) return;
+
+        const atStart = grid.scrollLeft <= 0;
+        const atEnd =
+            grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 1;
+
+        /*
+            Allow normal page scrolling when the
+            horizontal list cannot move further.
+        */
+        if ((delta < 0 && atStart) || (delta > 0 && atEnd)) return;
+
+        event.preventDefault();
+
+        grid.scrollBy({
+            left:delta * 1.4,
+            behavior:"auto"
+        });
+    },{passive:false});
+}
+
+function updateMachineNav() {
+    const container = document.getElementById("machineCards");
+    const prev = document.getElementById("machinePrev");
+    const next = document.getElementById("machineNext");
+
+    const hasOverflow =
+        container.scrollWidth > container.clientWidth + 2;
+
+    prev.style.display = hasOverflow ? "" : "none";
+    next.style.display = hasOverflow ? "" : "none";
+
+    if (!hasOverflow) return;
+
+    prev.disabled = container.scrollLeft <= 2;
+
+    next.disabled =
+        container.scrollLeft + container.clientWidth
+        >= container.scrollWidth - 2;
+}
+
+/* ================= MACHINE DETAIL ================= */
+
+function renderMachineDetail(name,machine) {
+    setText("machineDetailTitle",`Machine Detail — ${name}`);
+
+    render24HourDonut(name,machine);
+    renderDowntimeDetail(machine);
+    renderInsights(machine);
+    renderProductionDetail(machine);
+}
+
+/* ================= DONUT ================= */
+
+function render24HourDonut(name,machine) {
+    const donutContainer = document.getElementById("donutContainer");
+    const legendContainer = document.getElementById("donutLegend");
+
+    donutContainer.replaceChildren();
+    legendContainer.replaceChildren();
+
+    const downtimeHours = parseDowntimeHours(machine.downtime);
+
+    if (downtimeHours === null) {
+        donutContainer.appendChild(
+            createWarning("Invalid downtime format received from backend.")
+        );
+        return;
+    }
+
+    if (downtimeHours > DAY_HOURS) {
+        donutContainer.appendChild(
+            createWarning(
+                `Actual downtime is ${downtimeHours.toFixed(2)} hr, ` +
+                "which exceeds the 24-hour production period."
+            )
+        );
+        return;
+    }
+
+    const noDowntimeHours = DAY_HOURS - downtimeHours;
+    const noDowntimePercent = (noDowntimeHours / DAY_HOURS) * 100;
+    const downtimePercent = (downtimeHours / DAY_HOURS) * 100;
+
+    const donut = document.createElement("div");
+    donut.className = "donut-wrap";
+
+    let segments = "";
+
+    if (noDowntimePercent > 0) {
+        segments += `
+            <circle class="donut-segment"
+                cx="100" cy="100" r="70" pathLength="100"
+                stroke="${NORMAL_COLOR}"
+                stroke-dasharray="${noDowntimePercent} ${100-noDowntimePercent}"
+                stroke-dashoffset="0">
+                <title>
+                    No Downtime Recorded: ${noDowntimeHours.toFixed(2)} hr
+                </title>
+            </circle>
+        `;
+    }
+
+    if (downtimePercent > 0) {
+        segments += `
+            <circle class="donut-segment"
+                cx="100" cy="100" r="70" pathLength="100"
+                stroke="${DOWNTIME_COLOR}"
+                stroke-dasharray="${downtimePercent} ${100-downtimePercent}"
+                stroke-dashoffset="${-noDowntimePercent}">
+                <title>
+                    Actual Downtime: ${downtimeHours.toFixed(2)} hr
+                </title>
+            </circle>
+        `;
+    }
+
+    donut.innerHTML = `
+        <svg class="donut-svg" viewBox="0 0 200 200"
+             role="img" aria-label="24 hour machine downtime overview">
+
+            <circle class="donut-background"
+                    cx="100" cy="100" r="70"></circle>
+
+            ${segments}
+        </svg>
+
+        <div class="donut-center">
+            <div class="donut-center-machine">${escapeHTML(name)}</div>
+            <div class="donut-center-value">${downtimeHours.toFixed(1)} hr</div>
+            <div class="donut-center-label">Actual Downtime</div>
+        </div>
+    `;
+
+    donutContainer.appendChild(donut);
+
+    const legend = document.createElement("div");
+    legend.className = "donut-legend";
+
+    legend.appendChild(
+        createDonutLegendRow(
+            NORMAL_COLOR,
+            "No Downtime Recorded",
+            `${noDowntimeHours.toFixed(2)} hr (${noDowntimePercent.toFixed(1)}%)`
+        )
+    );
+
+    legend.appendChild(
+        createDonutLegendRow(
+            DOWNTIME_COLOR,
+            "Actual Downtime",
+            `${downtimeHours.toFixed(2)} hr (${downtimePercent.toFixed(1)}%)`
+        )
+    );
+
+    legendContainer.appendChild(legend);
+}
+
+function createDonutLegendRow(color,name,value) {
+    const row = document.createElement("div");
+    row.className = "donut-legend-row";
+
+    const marker = document.createElement("div");
+    marker.className = "legend-color";
+    marker.style.backgroundColor = color;
+
+    const label = document.createElement("div");
+    label.textContent = name;
+
+    const amount = document.createElement("div");
+    amount.className = "legend-value";
+    amount.textContent = value;
+
+    row.append(marker,label,amount);
+
+    return row;
+}
+
+/* ================= DOWNTIME ================= */
+
+function renderDowntimeDetail(machine) {
+    const container = document.getElementById("downtimeDetail");
+    container.replaceChildren();
+
+    const detail = isObject(machine.downtime_detail)
+        ? machine.downtime_detail
+        : {};
+
+    const entries = Object.entries(detail)
+        .map(([type,hours]) => [type,toSafeNumber(hours)])
+        .filter(([,hours]) => hours !== null && hours > 0)
+        .sort((a,b) => b[1] - a[1]);
+
+    if (!entries.length) {
+        container.appendChild(
+            createEmptyMessage("No downtime detail recorded.")
+        );
+        return;
+    }
+
+    const actualDowntime = parseDowntimeHours(machine.downtime);
+    const categoryTotal = entries.reduce((sum,[,hours]) => sum + hours,0);
+    const maxValue = Math.max(...entries.map(([,hours]) => hours),0);
+
+    const summary = document.createElement("div");
+    summary.className = "downtime-total";
+
+    summary.innerHTML = `
+        Actual Downtime:
+        <strong>
+            ${actualDowntime !== null ? actualDowntime.toFixed(2) : "-"} hr
+        </strong>
+
+        &nbsp; | &nbsp;
+
+        Category Records:
+        <strong>${categoryTotal.toFixed(2)} hr</strong>
+    `;
+
+    container.appendChild(summary);
+
+    entries.forEach(([type,hours]) => {
+        const width = maxValue > 0 ? (hours / maxValue) * 100 : 0;
+
+        const row = document.createElement("div");
+        row.className = "downtime-row";
+
+        row.innerHTML = `
+            <div class="downtime-header">
+                <span class="downtime-name">${escapeHTML(type)}</span>
+                <span class="downtime-hours">${hours.toFixed(2)} hr</span>
+            </div>
+
+            <div class="downtime-detail-bar">
+                <div class="downtime-detail-fill"
+                     style="width:${width}%"></div>
+            </div>
+        `;
+
+        container.appendChild(row);
+    });
+
+    const note = document.createElement("div");
+    note.className = "overlap-note";
+    note.textContent =
+        "Downtime categories may overlap in time. " +
+        "Category hours are source records and may exceed Actual Downtime.";
+
+    container.appendChild(note);
+}
+
+/* ================= SMART INSIGHT ================= */
+
+function renderInsights(machine) {
+    const container = document.getElementById("insightList");
+    container.replaceChildren();
+
+    addInsightGroup(container,"Summary",machine.summary,"summary");
+    addInsightGroup(container,"Focus",machine.focus,"focus");
+    addInsightGroup(container,"Action",machine.action,"action");
+
+    if (!container.children.length) {
+        container.appendChild(
+            createEmptyMessage("No insight available.")
+        );
+    }
+}
+
+function addInsightGroup(container,title,items,type) {
+    if (!Array.isArray(items) || !items.length) return;
+
+    const group = document.createElement("div");
+    group.className = "insight-group";
+
+    const heading = document.createElement("div");
+    heading.className = "insight-group-title";
+    heading.textContent = title;
+
+    group.appendChild(heading);
+
+    items.forEach(item => {
+        const div = document.createElement("div");
+        div.className = `insight ${type}`;
+        div.textContent = String(item ?? "");
+        group.appendChild(div);
+    });
+
+    container.appendChild(group);
+}
+
+/* ================= PRODUCTION DETAIL ================= */
+
+function renderProductionDetail(machine) {
+    const container = document.getElementById("productionDetail");
+    container.replaceChildren();
+
+    const detail = isObject(machine.detail) ? machine.detail : {};
+
+    const items = [
+        ["Input First OPN",detail.input_first_opn],
+        ["Output Last OPN",detail.output_last_opn],
+        ["Pass Last OPN",detail.pass_last_opn],
+        ["Ideal Speed",detail.ideal_speed]
+    ];
+
+    items.forEach(([label,value]) => {
+        if (value === undefined || value === null) return;
+
+        const card = document.createElement("div");
+        card.className = "detail-item";
+
+        const title = document.createElement("div");
+        title.className = "detail-label";
+        title.textContent = label;
+
+        const result = document.createElement("div");
+        result.className = "detail-value";
+        result.textContent = formatDetailValue(value);
+        result.title = formatDetailValue(value);
+
+        card.append(title,result);
+        container.appendChild(card);
+    });
+}
+
+/* ================= HELPERS ================= */
+
+function parseDowntimeHours(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "string") return null;
+
+    const match = value.trim().match(/^(\d+):([0-5]\d)$/);
+
+    if (!match) return null;
+
+    return Number(match[1]) + Number(match[2]) / 60;
+}
+
+function formatDetailValue(value) {
+    if (isObject(value)) {
+        return Object.entries(value)
+            .map(([key,val]) => `${key.replaceAll("_"," / ")}: ${val}`)
+            .join(" | ");
+    }
+
+    return String(value ?? "-");
+}
+
+function parseDateParts(dateText) {
+    if (!isValidDateFormat(dateText)) return null;
+
+    const [year,month,day] = dateText.split("-").map(Number);
+
+    return {year,month,day};
+}
+
+function buildDateText(year,month,day) {
+    return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+}
+
+function formatDisplayDate(dateText) {
+    const parts = parseDateParts(dateText);
+
+    if (!parts) return "-";
+
+    return (
+        `${String(parts.month).padStart(2,"0")}/` +
+        `${String(parts.day).padStart(2,"0")}/` +
+        `${parts.year}`
+    );
+}
+
+function getMonthName(year,monthIndex) {
+    const date = new Date(Date.UTC(year,monthIndex,1));
+
+    return new Intl.DateTimeFormat("en-US",{
+        month:"long",
+        year:"numeric",
+        timeZone:"UTC"
+    }).format(date);
+}
+
+function normalizeDate(value) {
+    if (typeof value === "string" && isValidDateFormat(value)) return value;
+    return "";
+}
+
+function getProductionPeriod(dateText) {
+    const parts = parseDateParts(dateText);
+
+    if (!parts) return {start:"-",end:"-"};
+
+    const end = new Date(
+        Date.UTC(parts.year,parts.month - 1,parts.day)
+    );
+
+    const start = new Date(
+        end.getTime() - 24 * 60 * 60 * 1000
+    );
+
+    const startText = buildDateText(
+        start.getUTCFullYear(),
+        start.getUTCMonth() + 1,
+        start.getUTCDate()
+    );
+
+    return {
+        start:`${startText} 19:00`,
+        end:`${dateText} 19:00`
+    };
+}
+
+function setConnectionStatus(text,type) {
+    const status = document.getElementById("connectionStatus");
+
+    status.textContent = text;
+    status.className = "status-badge";
+
+    if (type === "connected") status.classList.add("status-connected");
+    else if (type === "demo") status.classList.add("status-demo");
+    else if (type === "error") status.classList.add("status-error");
+    else status.classList.add("status-loading");
+}
+
+function setText(id,value) {
+    const element = document.getElementById(id);
+
+    if (element) element.textContent = String(value ?? "-");
+}
+
+function toSafeNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function formatPercent(value) {
+    const number = toSafeNumber(value);
+
+    return number === null
+        ? "-"
+        : `${number.toFixed(2)}%`;
+}
+
+function isObject(value) {
+    return value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value);
+}
+
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+}
+
+function createEmptyMessage(text) {
+    const div = document.createElement("div");
+    div.className = "empty-message";
+    div.textContent = text;
+    return div;
+}
+
+function createWarning(text) {
+    const div = document.createElement("div");
+    div.className = "data-warning";
+    div.textContent = text;
+    return div;
+}
+
+function clearDashboard() {
+    currentData = null;
+    machineEntries = [];
+    selectedMachineName = "";
+    selectedMachineIndex = 0;
+
+    setText("productionDateText","-");
+    setText("periodText","-");
+
+    document.getElementById("machineCards").replaceChildren();
+
+    clearMachineDetail();
+}
+
+function clearMachineDetail() {
+    setText("machineDetailTitle","Machine Detail");
+
+    [
+        "donutContainer",
+        "donutLegend",
+        "downtimeDetail",
+        "insightList",
+        "productionDetail"
+    ].forEach(id => {
+        document.getElementById(id).replaceChildren();
+    });
+
+    document.getElementById("donutContainer").appendChild(
+        createEmptyMessage("No machine selected.")
+    );
+}
+
+function isValidDateFormat(value) {
+    if (typeof value !== "string") return false;
+
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+    if (!match) return false;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+
+    if (month < 1 || month > 12) return false;
+
+    const maxDay = new Date(
+        Date.UTC(year,month,0)
+    ).getUTCDate();
+
+    return day >= 1 && day <= maxDay;
+}
+
+/* ================= EVENTS ================= */
+
+document.addEventListener("DOMContentLoaded",() => {
+    const datePicker = document.getElementById("datePicker");
+    const dateButton = document.getElementById("dateButton");
+    const refreshButton = document.getElementById("refreshButton");
+    const machineGrid = document.getElementById("machineCards");
+
+    dateButton.addEventListener("click",event => {
+        event.stopPropagation();
+        toggleCalendar();
+    });
+
+    document.getElementById("calendarPrev").addEventListener("click",event => {
+        event.stopPropagation();
+        changeCalendarMonth(-1);
+    });
+
+    document.getElementById("calendarNext").addEventListener("click",event => {
+        event.stopPropagation();
+        changeCalendarMonth(1);
+    });
+
+    document.getElementById("latestDateButton").addEventListener(
+        "click",
+        async event => {
+            event.stopPropagation();
+            await selectLatestDate();
+        }
+    );
+
+    refreshButton.addEventListener("click",refreshDashboard);
+
+    document.getElementById("machinePrev").addEventListener(
+        "click",
+        () => scrollMachineCards(-1)
+    );
+
+    document.getElementById("machineNext").addEventListener(
+        "click",
+        () => scrollMachineCards(1)
+    );
+
+    machineGrid.addEventListener(
+        "scroll",
+        updateMachineNav,
+        {passive:true}
+    );
+
+    window.addEventListener(
+        "resize",
+        updateMachineNav
+    );
+
+    enableMachineWheelScroll();
+
+    document.addEventListener("click",event => {
+        if (!datePicker.contains(event.target)) closeCalendar();
+    });
+
+    document.addEventListener("keydown",event => {
+        if (event.key === "Escape") closeCalendar();
+    });
+
+    initializeDashboard();
+});
+</script>
+
+</body>
+</html>

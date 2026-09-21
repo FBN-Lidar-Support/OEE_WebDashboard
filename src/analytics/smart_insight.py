@@ -142,7 +142,7 @@ def get_machine_main_loss(machine):
 # ==========================================================
 # Machine Summary
 # ==========================================================
-def generate_machine_summary(oee_result, downtime_data):
+def generate_machine_summary(oee_result, downtime_data, downtime_type):
     machines = {}
     for name, item in oee_result.items():
         ####################################################
@@ -214,6 +214,7 @@ def generate_machine_summary(oee_result, downtime_data):
             "performance": performance,
             "quality": quality,
             "downtime": hours_to_time(downtime),
+            "downtime_detail": downtime_type[name],
             "target": item["target"],
             "OEE_status": item["oee_status"],
             "A_status": item["a_status"],
@@ -233,9 +234,9 @@ def generate_machine_summary(oee_result, downtime_data):
 # ==========================================================
 # Daily Insight
 # ==========================================================
-def generate_daily_insight(oee_result, downtime_data, production_date):
+def generate_daily_insight(oee_result, downtime_data, downtime_type, production_date):
     overall = generate_overall_summary(oee_result=oee_result, downtime_data=downtime_data, production_date=production_date)
-    machines = generate_machine_summary(oee_result=oee_result, downtime_data=downtime_data)
+    machines = generate_machine_summary(oee_result=oee_result, downtime_data=downtime_data, downtime_type=downtime_type)
     dashboard = {
         "overall": overall,
         "machines": machines
