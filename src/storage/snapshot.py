@@ -5,8 +5,10 @@ from configparser import ConfigParser
 from copy import deepcopy
 from datetime import date, datetime, timedelta, time
 from pathlib import Path
+
 SCHEMA_VERSION = 1
 PRODUCTION_END_TIME = time(19, 0)
+
 def load_history_dir(config_path="config/config.ini"):
     config = ConfigParser()
     if not config.read(config_path, encoding="utf-8"):
