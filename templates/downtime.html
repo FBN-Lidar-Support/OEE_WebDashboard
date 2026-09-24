@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Downtime Entry</title>
+
+<style>
+:root{--green:#007c59;--green2:#00966d;--bg:#f4f7f6;--panel:#fff;--border:#dce5e1;--text:#17211d;--muted:#65736d;--danger:#c62828;--warning:#c46b00}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text)}
+button,input,select{font:inherit}
+button{border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+input,select{border:1px solid #bccbc5;border-radius:8px;background:#fff;padding:10px 12px;min-height:42px}
+.header{background:#fff;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.brand h1{font-size:24px;margin:0}
+.brand small{color:var(--muted)}
+.back-link{color:var(--green);font-weight:700;text-decoration:none}
+.container{max-width:1500px;margin:auto;padding:20px 24px}
+.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:13px;font-weight:700;color:var(--muted)}
+.toolbar select{min-width:260px}
+.btn-primary{background:var(--green);color:#fff}
+.btn-primary:hover:not(:disabled){background:var(--green2)}
+.btn-secondary{background:#e9f1ee;color:var(--green)}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.panel-title{padding:14px 16px;font-size:18px;font-weight:800;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.meta{font-size:13px;color:var(--muted);font-weight:500}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:1100px}
+th,td{padding:11px 12px;border-bottom:1px solid #edf1ef;text-align:left;vertical-align:middle}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:#f8faf9;white-space:nowrap}
+td{font-size:14px}
+.checkout-input{min-width:190px}
+.duration{font-weight:800}
+.status-open{font-weight:800;color:var(--warning)}
+.status-pending{font-weight:800;color:var(--green)}
+.empty{padding:36px;text-align:center;color:var(--muted)}
+.save-bar{display:flex;justify-content:flex-end;margin-top:16px}
+.message{display:none;margin-bottom:14px;padding:11px 14px;border-radius:8px;font-weight:700}
+.message.show{display:block}
+.message.ok{background:#e7f5ee;color:#136b4d}
+.message.error{background:#fdecec;color:#9d2020}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.38);display:none;align-items:center;justify-content:center;padding:18px;z-index:100}
+.modal.show{display:flex}
+.modal-card{background:#fff;width:min(520px,100%);border-radius:14px;padding:22px;box-shadow:0 18px 60px rgba(0,0,0,.2)}
+.modal-card h2{margin:0 0 18px}
+.modal-grid{display:grid;gap:13px}
+.modal-card input,.modal-card select{width:100%}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+
+@media(max-width:700px){
+    .header,.container{padding-left:14px;padding-right:14px}
+    .brand small{display:none}
+    .toolbar{align-items:stretch}
+    .toolbar .field,.toolbar select,.toolbar button{width:100%}
+}
+</style>
+</head>
+
+<body>
+
+<header class="header">
+    <div class="brand">
+        <h1>Downtime Entry</h1>
+        <small>Production OEE Downtime Recording</small>
+    </div>
+    <a class="back-link" href="/">← OEE Dashboard</a>
+</header>
+
+<main class="container">
+    <div id="message" class="message"></div>
+
+    <div class="toolbar">
+        <div class="field">
+            <label for="machineSelect">Machine</label>
+            <select id="machineSelect">
+                <option value="">-- Select Machine --</option>
+            </select>
+        </div>
+
+        <button id="refreshBtn" class="btn-secondary" type="button" disabled>Refresh</button>
+        <button id="addBtn" class="btn-primary" type="button" disabled>+ Add Downtime</button>
+    </div>
+
+    <section class="panel">
+        <div class="panel-title">
+            <span>Current Open Downtime</span>
+            <span id="recordCount" class="meta">0 item(s)</span>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type Downtime</th>
+                        <th>Detail</th>
+                        <th>EN Check In</th>
+                        <th>Timestamp Check In</th>
+                        <th>Timestamp Check Out</th>
+                        <th>Duration (hr)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="downtimeBody"></tbody>
+            </table>
+
+            <div id="emptyState" class="empty">Select a machine to view open downtime.</div>
+        </div>
+    </section>
+
+    <div class="save-bar">
+        <button id="saveBtn" class="btn-primary" type="button" disabled>SAVE CHANGES</button>
+    </div>
+</main>
+
+
+<!-- ADD DOWNTIME -->
+<div id="addModal" class="modal">
+    <div class="modal-card">
+        <h2>Add Downtime</h2>
+
+        <div class="modal-grid">
+            <div class="field">
+                <label>Machine</label>
+                <input id="addMachine" type="text" readonly>
+            </div>
+
+            <div class="field">
+                <label for="addType">Type Downtime</label>
+                <select id="addType">
+                    <option value="">-- Select Type --</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label for="addDetail">Detail</label>
+                <input id="addDetail" type="text" maxlength="300" autocomplete="off">
+            </div>
+
+            <div class="field">
+                <label for="addEn">EN Check In</label>
+                <input id="addEn" type="text" inputmode="numeric" maxlength="20" autocomplete="off">
+            </div>
+
+            <div class="field">
+                <label for="addCheckin">Check In Time</label>
+                <input id="addCheckin" type="datetime-local">
+            </div>
+        </div>
+
+        <div class="modal-actions">
+            <button id="addCancel" class="btn-secondary" type="button">Cancel</button>
+            <button id="addSubmit" class="btn-primary" type="button">Add Downtime</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- CLOSE DOWNTIME -->
+<div id="closeModal" class="modal">
+    <div class="modal-card">
+        <h2>Save Check Out</h2>
+
+        <p id="closeSummary" class="meta"></p>
+
+        <div class="field">
+            <label for="closeEn">EN Check Out</label>
+            <input id="closeEn" type="text" inputmode="numeric" maxlength="20" autocomplete="off">
+        </div>
+
+        <div class="modal-actions">
+            <button id="closeCancel" class="btn-secondary" type="button">Cancel</button>
+            <button id="closeSubmit" class="btn-primary" type="button">Confirm & Save</button>
+        </div>
+    </div>
+</div>
+
+
+<script>
+"use strict";
+
+const machineSelect=document.getElementById("machineSelect");
+const body=document.getElementById("downtimeBody");
+const emptyState=document.getElementById("emptyState");
+const recordCount=document.getElementById("recordCount");
+const addBtn=document.getElementById("addBtn");
+const refreshBtn=document.getElementById("refreshBtn");
+const saveBtn=document.getElementById("saveBtn");
+const message=document.getElementById("message");
+
+let currentRecords=[];
+const pending=new Map();
+
+
+function showMessage(text,type="ok"){
+    message.textContent=text;
+    message.className=`message show ${type}`;
+}
+
+function clearMessage(){
+    message.textContent="";
+    message.className="message";
+}
+
+function setModal(id,open){
+    document.getElementById(id).classList.toggle("show",open);
+}
+
+function updateSaveState(){
+    saveBtn.disabled=pending.size===0;
+}
+
+
+async function api(url,options={}){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),10000);
+
+    try{
+        const response=await fetch(url,{
+            ...options,
+            signal:controller.signal,
+            headers:{
+                ...(options.body?{"Content-Type":"application/json"}:{}),
+                ...(options.headers||{})
+            }
+        });
+
+        let data={};
+        try{data=await response.json();}catch(_){}
+
+        if(!response.ok) throw new Error(data.error||`HTTP ${response.status}`);
+        return data;
+
+    }catch(error){
+        if(error.name==="AbortError") throw new Error("Server request timeout.");
+        throw error;
+
+    }finally{
+        clearTimeout(timer);
+    }
+}
+
+
+function localNowMinute(){
+    const d=new Date();
+    d.setSeconds(0,0);
+    const offset=d.getTimezoneOffset();
+    return new Date(d.getTime()-offset*60000).toISOString().slice(0,16);
+}
+
+
+function durationHours(checkinIso,checkoutIso){
+    if(!checkinIso||!checkoutIso) return null;
+
+    const checkin=new Date(checkinIso);
+    const checkout=new Date(checkoutIso);
+
+    if(Number.isNaN(checkin.getTime())||Number.isNaN(checkout.getTime())||checkout<checkin) return null;
+
+    return Math.round(((checkout-checkin)/3600000)*100)/100;
+}
+
+
+async function loadMachines(){
+    const data=await api("/api/downtime/machines");
+
+    machineSelect.innerHTML='<option value="">-- Select Machine --</option>';
+
+    for(const machine of data.machines||[]){
+        const option=document.createElement("option");
+        option.value=machine;
+        option.textContent=machine;
+        machineSelect.appendChild(option);
+    }
+}
+
+
+async function loadOpen(){
+    clearMessage();
+    pending.clear();
+    updateSaveState();
+
+    const machine=machineSelect.value;
+    addBtn.disabled=!machine;
+    refreshBtn.disabled=!machine;
+
+    if(!machine){
+        currentRecords=[];
+        renderRows();
+        return;
+    }
+
+    try{
+        const data=await api(`/api/downtime/open?machine=${encodeURIComponent(machine)}`);
+        currentRecords=Array.isArray(data.records)?data.records:[];
+        renderRows();
+
+    }catch(error){
+        currentRecords=[];
+        renderRows();
+        showMessage(error.message,"error");
+    }
+}
+
+
+function renderRows(){
+    body.innerHTML="";
+    recordCount.textContent=`${currentRecords.length} item(s)`;
+
+    if(!machineSelect.value){
+        emptyState.style.display="block";
+        emptyState.textContent="Select a machine to view open downtime.";
+        return;
+    }
+
+    if(currentRecords.length===0){
+        emptyState.style.display="block";
+        emptyState.textContent="No open downtime.";
+        return;
+    }
+
+    emptyState.style.display="none";
+
+    for(const record of currentRecords){
+        const tr=document.createElement("tr");
+
+        for(const value of [record.type,record.detail,record.en_checkin,record.checkin]){
+            const td=document.createElement("td");
+            td.textContent=value||"";
+            tr.appendChild(td);
+        }
+
+        const checkoutTd=document.createElement("td");
+        const checkout=document.createElement("input");
+
+        checkout.type="datetime-local";
+        checkout.className="checkout-input";
+        checkout.min=record.checkin_iso||"";
+        checkout.dataset.rowIndex=record.row_index;
+
+        checkout.addEventListener("change",()=>{
+            const hours=durationHours(record.checkin_iso,checkout.value);
+            const durationCell=tr.querySelector(".duration");
+            const statusCell=tr.querySelector(".row-status");
+
+            if(hours===null){
+                pending.delete(record.row_index);
+                durationCell.textContent="";
+                statusCell.textContent="OPENED";
+                statusCell.className="row-status status-open";
+
+                if(checkout.value) showMessage("Check Out Time cannot be before Check In Time.","error");
+
+            }else{
+                pending.set(record.row_index,{
+                    row_index:record.row_index,
+                    checkin:record.checkin,
+                    checkout:checkout.value
+                });
+
+                durationCell.textContent=hours.toFixed(2);
+                statusCell.textContent="PENDING CLOSE";
+                statusCell.className="row-status status-pending";
+                clearMessage();
+            }
+
+            updateSaveState();
+        });
+
+        checkoutTd.appendChild(checkout);
+        tr.appendChild(checkoutTd);
+
+        const durationTd=document.createElement("td");
+        durationTd.className="duration";
+        tr.appendChild(durationTd);
+
+        const statusTd=document.createElement("td");
+        statusTd.textContent="OPENED";
+        statusTd.className="row-status status-open";
+        tr.appendChild(statusTd);
+
+        body.appendChild(tr);
+    }
+}
+
+
+async function openAddModal(){
+    const machine=machineSelect.value;
+    if(!machine) return;
+
+    try{
+        const data=await api(`/api/downtime/types?machine=${encodeURIComponent(machine)}`);
+        const typeSelect=document.getElementById("addType");
+
+        typeSelect.innerHTML='<option value="">-- Select Type --</option>';
+
+        for(const type of data.types||[]){
+            const option=document.createElement("option");
+            option.value=type;
+            option.textContent=type;
+            typeSelect.appendChild(option);
+        }
+
+        document.getElementById("addMachine").value=machine;
+        document.getElementById("addDetail").value="";
+        document.getElementById("addEn").value="";
+        document.getElementById("addCheckin").value=localNowMinute();
+
+        setModal("addModal",true);
+
+    }catch(error){
+        showMessage(error.message,"error");
+    }
+}
+
+
+async function submitAdd(){
+    const button=document.getElementById("addSubmit");
+
+    const payload={
+        machine:machineSelect.value,
+        type:document.getElementById("addType").value,
+        detail:document.getElementById("addDetail").value.trim(),
+        en_checkin:document.getElementById("addEn").value.trim(),
+        checkin:document.getElementById("addCheckin").value
+    };
+
+    if(!payload.type||!payload.detail||!payload.en_checkin||!payload.checkin){
+        showMessage("Please complete all Add Downtime fields.","error");
+        return;
+    }
+
+    if(!/^\d+$/.test(payload.en_checkin)){
+        showMessage("EN Check In must contain numbers only.","error");
+        return;
+    }
+
+    button.disabled=true;
+
+    try{
+        const data=await api("/api/downtime/open",{
+            method:"POST",
+            body:JSON.stringify(payload)
+        });
+
+        setModal("addModal",false);
+        await loadOpen();
+        showMessage(data.message||"Downtime added successfully.");
+
+    }catch(error){
+        showMessage(error.message,"error");
+
+    }finally{
+        button.disabled=false;
+    }
+}
+
+
+function openCloseModal(){
+    if(pending.size===0) return;
+
+    document.getElementById("closeEn").value="";
+    document.getElementById("closeSummary").textContent=
+        `Machine: ${machineSelect.value} | Close Downtime: ${pending.size} item(s)`;
+
+    setModal("closeModal",true);
+}
+
+
+async function submitClose(){
+    const button=document.getElementById("closeSubmit");
+    const en=document.getElementById("closeEn").value.trim();
+
+    if(!/^\d+$/.test(en)){
+        showMessage("EN Check Out must contain numbers only.","error");
+        return;
+    }
+
+    button.disabled=true;
+
+    try{
+        const data=await api("/api/downtime/close",{
+            method:"POST",
+            body:JSON.stringify({
+                machine:machineSelect.value,
+                en_checkout:en,
+                items:Array.from(pending.values())
+            })
+        });
+
+        setModal("closeModal",false);
+        await loadOpen();
+        showMessage(data.message||"Downtime saved successfully.");
+
+    }catch(error){
+        showMessage(error.message,"error");
+
+        if(/refresh/i.test(error.message)) await loadOpen();
+
+    }finally{
+        button.disabled=false;
+    }
+}
+
+
+machineSelect.addEventListener("change",loadOpen);
+refreshBtn.addEventListener("click",loadOpen);
+addBtn.addEventListener("click",openAddModal);
+saveBtn.addEventListener("click",openCloseModal);
+
+document.getElementById("addCancel").addEventListener("click",()=>setModal("addModal",false));
+document.getElementById("addSubmit").addEventListener("click",submitAdd);
+document.getElementById("closeCancel").addEventListener("click",()=>setModal("closeModal",false));
+document.getElementById("closeSubmit").addEventListener("click",submitClose);
+
+// Auto Refresh every 30 seconds
+setInterval(()=>{
+    if(machineSelect.value && pending.size===0){
+        loadOpen();
+    }
+},30000);
+
+(async()=>{
+    try{
+        await loadMachines();
+    }catch(error){
+        showMessage(error.message,"error");
+    }
+})();
+</script>
+
+</body>
+</html>

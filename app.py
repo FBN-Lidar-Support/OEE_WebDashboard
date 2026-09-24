@@ -5,16 +5,16 @@ from configparser import ConfigParser
 from datetime import date
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request
+from src.downtime import create_downtime_blueprint
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config" / "config.ini"
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_JSON_SIZE = 5 * 1024 * 1024  # 5 MB
 
-app = Flask(
-    __name__,
-    template_folder=str(BASE_DIR / "templates")
-)
+app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
+app.register_blueprint(create_downtime_blueprint(CONFIG_PATH))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"

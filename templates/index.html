@@ -874,6 +874,9 @@ button,input { font-family:inherit; }
         height:225px;
     }
 }
+.downtime-btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 16px;background:#007c59;color:#fff;text-decoration:none;font-weight:700;font-size:14px;border-radius:8px}
+.downtime-btn:hover{background:#00966d}
+
 </style>
 </head>
 
@@ -886,6 +889,7 @@ button,input { font-family:inherit; }
     </div>
 
     <div class="header-controls">
+        <a href="/downtime" class="downtime-btn">Downtime Entry</a>
         <div id="datePicker" class="date-picker">
             <button id="dateButton" class="date-button" type="button"
                     aria-haspopup="dialog" aria-expanded="false">
