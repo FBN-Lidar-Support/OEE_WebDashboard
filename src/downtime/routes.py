@@ -1,7 +1,9 @@
 import configparser
+import csv
+import io
 from pathlib import Path
-from flask import Blueprint, jsonify, render_template, request
-from .service import (ConflictError, DowntimeStore, StorageError, ValidationError)
+from flask import Blueprint, jsonify, render_template, request, send_file
+from .service import ConflictError, DowntimeStore, StorageError, ValidationError
 
 def create_downtime_blueprint(config_path):
     config = configparser.ConfigParser()
@@ -18,19 +20,33 @@ def create_downtime_blueprint(config_path):
     @bp.get("/downtime")
     def downtime_page():
         return render_template("downtime.html")
+    @bp.get("/api/downtime/lines")
+    def get_lines():
+        try:
+            return jsonify({"lines": store.list_lines()})
+        except StorageError:
+            return jsonify({"error": "Downtime storage unavailable."}), 503
     @bp.get("/api/downtime/machines")
     def get_machines():
         try:
-            return jsonify({"machines": store.list_machines()})
+            line = request.args.get("line", "")
+            return jsonify({
+                "line": line,
+                "machines": store.list_machines(line)
+            })
+        except ValidationError as e:
+            return jsonify({"error": str(e)}), 400
         except StorageError:
             return jsonify({"error": "Downtime storage unavailable."}), 503
     @bp.get("/api/downtime/types")
     def get_types():
         try:
+            line = request.args.get("line", "")
             machine = request.args.get("machine", "")
             return jsonify({
+                "line": line,
                 "machine": machine,
-                "types": store.get_downtime_types(machine)
+                "types": store.get_downtime_types(line, machine)
             })
         except ValidationError as e:
             return jsonify({"error": str(e)}), 400
@@ -57,6 +73,7 @@ def create_downtime_blueprint(config_path):
             return jsonify({"error": "Invalid request."}), 400
         try:
             record = store.add_downtime(
+                line=payload.get("line"),
                 machine=payload.get("machine"),
                 downtime_type=payload.get("type"),
                 detail=payload.get("detail"),
@@ -92,6 +109,41 @@ def create_downtime_blueprint(config_path):
             return jsonify({"error": str(e)}), 400
         except ConflictError as e:
             return jsonify({"error": str(e)}), 409
+        except StorageError:
+            return jsonify({"error": "Downtime storage unavailable."}), 503
+    @bp.get("/api/downtime/history")
+    def get_history():
+        try:
+            data = store.get_downtime_history(
+                line=request.args.get("line", ""),
+                machine=request.args.get("machine", ""),
+                from_date=request.args.get("from_date", ""),
+                to_date=request.args.get("to_date", "")
+            )
+            return jsonify(data)
+        except ValidationError as e:
+            return jsonify({"error": str(e)}), 400
+        except StorageError:
+            return jsonify({"error": "Downtime storage unavailable."}), 503
+    @bp.get("/api/downtime/history/download")
+    def download_history():
+        try:
+            data = store.get_downtime_history(
+                line=request.args.get("line", ""),
+                machine=request.args.get("machine", ""),
+                from_date=request.args.get("from_date", ""),
+                to_date=request.args.get("to_date", "")
+            )
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=data["columns"], extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(data["records"])
+            csv_bytes = io.BytesIO(("\ufeff" + output.getvalue()).encode("utf-8"))
+            csv_bytes.seek(0)
+            filename = f"Downtime_History_{data['machine']}_{data['from_date']}_{data['to_date']}.csv"
+            return send_file(csv_bytes, mimetype="text/csv; charset=utf-8", as_attachment=True, download_name=filename)
+        except ValidationError as e:
+            return jsonify({"error": str(e)}), 400
         except StorageError:
             return jsonify({"error": "Downtime storage unavailable."}), 503
     return bp

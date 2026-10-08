@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Downtime Entry</title>
-
 <style>
 :root{--green:#007c59;--green2:#00966d;--bg:#f4f7f6;--panel:#fff;--border:#dce5e1;--text:#17211d;--muted:#65736d;--danger:#c62828;--warning:#c46b00}
 *{box-sizing:border-box}
@@ -18,7 +17,8 @@ input,select{border:1px solid #bccbc5;border-radius:8px;background:#fff;padding:
 .brand small{color:var(--muted)}
 .back-link{color:var(--green);font-weight:700;text-decoration:none}
 .container{max-width:1500px;margin:auto;padding:20px 24px}
-.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.toolbar{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+.toolbar-row{display:flex;align-items:end;gap:12px;flex-wrap:wrap}
 .field{display:flex;flex-direction:column;gap:6px}
 .field label{font-size:13px;font-weight:700;color:var(--muted)}
 .toolbar select{min-width:260px}
@@ -26,7 +26,7 @@ input,select{border:1px solid #bccbc5;border-radius:8px;background:#fff;padding:
 .btn-primary:hover:not(:disabled){background:var(--green2)}
 .btn-secondary{background:#e9f1ee;color:var(--green)}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-.panel-title{padding:14px 16px;font-size:18px;font-weight:800;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.panel-title{padding:14px 16px;font-size:18px;font-weight:800;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}
 .meta{font-size:13px;color:var(--muted);font-weight:500}
 .table-wrap{overflow:auto}
 table{width:100%;border-collapse:collapse;min-width:1100px}
@@ -43,7 +43,6 @@ td{font-size:14px}
 .message.show{display:block}
 .message.ok{background:#e7f5ee;color:#136b4d}
 .message.error{background:#fdecec;color:#9d2020}
-
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.38);display:none;align-items:center;justify-content:center;padding:18px;z-index:100}
 .modal.show{display:flex}
 .modal-card{background:#fff;width:min(520px,100%);border-radius:14px;padding:22px;box-shadow:0 18px 60px rgba(0,0,0,.2)}
@@ -52,137 +51,254 @@ td{font-size:14px}
 .modal-card input,.modal-card select{width:100%}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
 
+/* HISTORY */
+.tabs{display:flex;gap:8px;margin-bottom:18px;border-bottom:1px solid var(--border)}
+.tab-btn{background:transparent;color:var(--muted);border-radius:8px 8px 0 0;padding:13px 18px;border-bottom:3px solid transparent}
+.tab-btn.active{color:var(--green);border-bottom-color:var(--green);background:#e9f4ef}
+.tab-content[hidden]{display:none!important}
+.history-filter{padding:18px;margin-bottom:16px}
+.history-filter-grid{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.history-filter-grid .field{flex:1 1 175px;min-width:0}
+.history-filter-grid select,.history-filter-grid input{width:100%;min-width:0}
+.history-filter-grid button{min-height:42px}
+.history-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:16px}
+.history-kpi{background:white;border:1px solid var(--border);border-radius:12px;padding:19px;min-width:0}
+.history-kpi .kpi-label{color:var(--muted);font-size:13px;font-weight:700}
+.history-kpi .kpi-value{font-size:28px;font-weight:800;margin:9px 0 4px;overflow-wrap:anywhere}
+.history-kpi .kpi-sub{font-size:12px;color:var(--muted)}
+.history-panel{margin-bottom:16px}
+.history-panel-content{padding:18px}
+.trend-chart{width:100%;min-height:235px;display:block}
+.trend-chart text{font-family:Segoe UI,Arial,sans-serif;fill:#65736d;font-size:11px}
+.trend-chart .grid-line{stroke:#e6ede9;stroke-width:1}
+.trend-chart .trend-line{fill:none;stroke:#00865f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.trend-chart .trend-dot{fill:#00865f;stroke:#fff;stroke-width:2}
+.trend-scroll{overflow-x:auto}
+.rank-row{margin:0 0 17px}
+.rank-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline;font-size:14px;font-weight:750}
+.rank-bar-bg{background:#e7f0ec;height:11px;border-radius:20px;margin:8px 0 5px;overflow:hidden}
+.rank-bar{height:100%;background:linear-gradient(90deg,#007c59,#26b18b);border-radius:20px}
+.rank-sub{font-size:12px;color:var(--muted)}
+.history-table{min-width:1350px}
+.history-table .status-closed{font-weight:750;color:var(--green)}
+.history-table .status-open{font-weight:750;color:var(--warning)}
+.history-status{color:var(--muted);font-size:13px;margin-top:10px}
+@media(max-width:800px){
+.history-kpis{grid-template-columns:1fr}
+.history-filter-grid .field{flex:1 1 100%}
+.history-filter-grid button{flex:1 1 auto}
+}
 @media(max-width:700px){
-    .header,.container{padding-left:14px;padding-right:14px}
-    .brand small{display:none}
-    .toolbar{align-items:stretch}
-    .toolbar .field,.toolbar select,.toolbar button{width:100%}
+.header,.container{padding-left:14px;padding-right:14px}
+.brand small{display:none}
+.toolbar{align-items:stretch}
+.toolbar .field,.toolbar select,.toolbar button{width:100%}
+.tabs{overflow-x:auto}
+.tab-btn{white-space:nowrap}
+}
+.trend-chart text{
+    font-family:"Segoe UI",Arial,sans-serif;
+    fill:#65736d;
+    font-size:11px;
+}
+.trend-chart .trend-line{
+    fill:none;
+    stroke:#00865f;
+    stroke-width:3;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+}
+.trend-chart .trend-dot{
+    fill:#00865f;
+    stroke:#fff;
+    stroke-width:2;
 }
 </style>
 </head>
-
 <body>
-
 <header class="header">
-    <div class="brand">
-        <h1>Downtime Entry</h1>
-        <small>Production OEE Downtime Recording</small>
-    </div>
-    <a class="back-link" href="/">← OEE Dashboard</a>
+<div class="brand"><h1>Downtime Entry</h1><small>Production OEE Downtime Recording</small></div>
+<a class="back-link" href="/">← OEE Dashboard</a>
 </header>
 
 <main class="container">
-    <div id="message" class="message"></div>
+<div id="message" class="message"></div>
 
-    <div class="toolbar">
-        <div class="field">
-            <label for="machineSelect">Machine</label>
-            <select id="machineSelect">
-                <option value="">-- Select Machine --</option>
-            </select>
-        </div>
+<nav class="tabs" role="tablist" aria-label="Downtime views">
+<button type="button" class="tab-btn active" id="openTab" role="tab" aria-selected="true" aria-controls="openPanel">Current Open Downtime</button>
+<button type="button" class="tab-btn" id="historyTab" role="tab" aria-selected="false" aria-controls="historyPanel">Downtime History</button>
+</nav>
 
-        <button id="refreshBtn" class="btn-secondary" type="button" disabled>Refresh</button>
-        <button id="addBtn" class="btn-primary" type="button" disabled>+ Add Downtime</button>
-    </div>
+<!-- CURRENT OPEN DOWNTIME -->
+<div id="openPanel" class="tab-content" role="tabpanel" aria-labelledby="openTab">
+<div class="toolbar">
+<div class="toolbar-row">
+<div class="field">
+<label for="lineSelect">Line</label>
+<select id="lineSelect"><option value="">-- Select Line --</option></select>
+</div>
+</div>
+<div class="toolbar-row">
+<div class="field">
+<label for="machineSelect">Machine</label>
+<select id="machineSelect" disabled><option value="">-- Select Machine --</option></select>
+</div>
+<button id="refreshBtn" class="btn-secondary" type="button" disabled>Refresh</button>
+<button id="addBtn" class="btn-primary" type="button" disabled>+ Add Downtime</button>
+</div>
+</div>
+<section class="panel">
+<div class="panel-title"><span>Current Open Downtime</span><span id="recordCount" class="meta">0 item(s)</span></div>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Type Downtime</th>
+<th>Detail</th>
+<th>EN Check In</th>
+<th>Timestamp Check In</th>
+<th>Timestamp Check Out</th>
+<th>Duration (hr)</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody id="downtimeBody"></tbody>
+</table>
+<div id="emptyState" class="empty">Select a line and machine to view open downtime.</div>
+</div>
+</section>
+<div class="save-bar"><button id="saveBtn" class="btn-primary" type="button" disabled>SAVE CHANGES</button></div>
+</div>
 
-    <section class="panel">
-        <div class="panel-title">
-            <span>Current Open Downtime</span>
-            <span id="recordCount" class="meta">0 item(s)</span>
-        </div>
+<!-- DOWNTIME HISTORY -->
+<div id="historyPanel" class="tab-content" role="tabpanel" aria-labelledby="historyTab" hidden>
+<section class="panel history-filter">
+<div class="history-filter-grid">
+<div class="field">
+<label for="historyLine">Line</label>
+<select id="historyLine"><option value="">-- Select Line --</option></select>
+</div>
+<div class="field">
+<label for="historyMachine">Machine</label>
+<select id="historyMachine" disabled><option value="">-- Select Machine --</option></select>
+</div>
+<div class="field">
+<label for="historyFrom">From Date</label>
+<input type="date" id="historyFrom">
+</div>
+<div class="field">
+<label for="historyTo">To Date</label>
+<input type="date" id="historyTo">
+</div>
+<button type="button" class="btn-primary" id="historySearch">Search</button>
+<button type="button" class="btn-secondary" id="historyDownload" disabled>Download CSV</button>
+</div>
+<div id="historyStatus" class="history-status" role="status">Select a line, machine and date range, then click Search.</div>
+</section>
 
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Type Downtime</th>
-                        <th>Detail</th>
-                        <th>EN Check In</th>
-                        <th>Timestamp Check In</th>
-                        <th>Timestamp Check Out</th>
-                        <th>Duration (hr)</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody id="downtimeBody"></tbody>
-            </table>
+<!-- SUMMARY -->
+<div class="history-kpis">
+<div class="history-kpi">
+<div class="kpi-label">Total Downtime (hr)</div>
+<div class="kpi-value" id="historyHours">—</div>
+<div class="kpi-sub">Completed events · selected production days</div>
+</div>
+<div class="history-kpi">
+<div class="kpi-label">Total Events</div>
+<div class="kpi-value" id="historyEvents">—</div>
+<div class="kpi-sub">OPENED + CLOSED records</div>
+</div>
+<div class="history-kpi">
+<div class="kpi-label">Top Downtime Type</div>
+<div class="kpi-value" id="historyTopType" style="font-size:21px">—</div>
+<div class="kpi-sub" id="historyTopSub">By completed downtime hours</div>
+</div>
+</div>
 
-            <div id="emptyState" class="empty">Select a machine to view open downtime.</div>
-        </div>
-    </section>
+<!-- DAILY TREND -->
+<section class="panel history-panel">
+<div class="panel-title">
+<span>Daily Downtime Trend</span>
+<span class="meta">Downtime (hr) · Production Day 07:00–07:00</span>
+</div>
+<div class="history-panel-content">
+<div class="trend-scroll">
+<svg class="trend-chart" id="historyTrend" role="img" aria-label="Daily downtime trend"></svg>
+</div>
+<div class="history-status" id="trendEmpty">Search to view daily trend.</div>
+</div>
+</section>
 
-    <div class="save-bar">
-        <button id="saveBtn" class="btn-primary" type="button" disabled>SAVE CHANGES</button>
-    </div>
+<!-- RANKING -->
+<section class="panel history-panel">
+<div class="panel-title">
+<span>Downtime Ranking by Type</span>
+<span class="meta">Event Duration · OPENED + CLOSED</span>
+</div>
+<div class="history-panel-content" id="historyRanking">
+<div class="history-status">Search to view ranking.</div>
+</div>
+</section>
+
+<!-- HISTORY TABLE -->
+<section class="panel history-panel">
+<div class="panel-title">
+<span>Downtime History Records</span>
+<span class="meta" id="historyCount">0 item(s)</span>
+</div>
+<div class="table-wrap">
+<table class="history-table">
+<thead><tr id="historyHead"></tr></thead>
+<tbody id="historyBody"></tbody>
+</table>
+<div class="empty" id="historyEmpty">Search to view records.</div>
+</div>
+</section>
+</div>
 </main>
 
-
-<!-- ADD DOWNTIME -->
+<!-- ADD DOWNTIME MODAL -->
 <div id="addModal" class="modal">
-    <div class="modal-card">
-        <h2>Add Downtime</h2>
-
-        <div class="modal-grid">
-            <div class="field">
-                <label>Machine</label>
-                <input id="addMachine" type="text" readonly>
-            </div>
-
-            <div class="field">
-                <label for="addType">Type Downtime</label>
-                <select id="addType">
-                    <option value="">-- Select Type --</option>
-                </select>
-            </div>
-
-            <div class="field">
-                <label for="addDetail">Detail</label>
-                <input id="addDetail" type="text" maxlength="300" autocomplete="off">
-            </div>
-
-            <div class="field">
-                <label for="addEn">EN Check In</label>
-                <input id="addEn" type="text" inputmode="numeric" maxlength="20" autocomplete="off">
-            </div>
-
-            <div class="field">
-                <label for="addCheckin">Check In Time</label>
-                <input id="addCheckin" type="datetime-local">
-            </div>
-        </div>
-
-        <div class="modal-actions">
-            <button id="addCancel" class="btn-secondary" type="button">Cancel</button>
-            <button id="addSubmit" class="btn-primary" type="button">Add Downtime</button>
-        </div>
-    </div>
+<div class="modal-card">
+<h2>Add Downtime</h2>
+<div class="modal-grid">
+<div class="field"><label>Machine</label><input id="addMachine" type="text" readonly></div>
+<div class="field">
+<label for="addType">Type Downtime</label>
+<select id="addType"><option value="">-- Select Type --</option></select>
+</div>
+<div class="field"><label for="addDetail">Detail</label><input id="addDetail" type="text" maxlength="300" autocomplete="off"></div>
+<div class="field"><label for="addEn">EN Check In</label><input id="addEn" type="text" inputmode="numeric" maxlength="20" autocomplete="off"></div>
+<div class="field"><label for="addCheckin">Check In Time</label><input id="addCheckin" type="datetime-local"></div>
+</div>
+<div class="modal-actions">
+<button id="addCancel" class="btn-secondary" type="button">Cancel</button>
+<button id="addSubmit" class="btn-primary" type="button">Add Downtime</button>
+</div>
+</div>
 </div>
 
-
-<!-- CLOSE DOWNTIME -->
+<!-- CLOSE DOWNTIME MODAL -->
 <div id="closeModal" class="modal">
-    <div class="modal-card">
-        <h2>Save Check Out</h2>
-
-        <p id="closeSummary" class="meta"></p>
-
-        <div class="field">
-            <label for="closeEn">EN Check Out</label>
-            <input id="closeEn" type="text" inputmode="numeric" maxlength="20" autocomplete="off">
-        </div>
-
-        <div class="modal-actions">
-            <button id="closeCancel" class="btn-secondary" type="button">Cancel</button>
-            <button id="closeSubmit" class="btn-primary" type="button">Confirm & Save</button>
-        </div>
-    </div>
+<div class="modal-card">
+<h2>Save Check Out</h2>
+<p id="closeSummary" class="meta"></p>
+<div class="field">
+<label for="closeEn">EN Check Out</label>
+<input id="closeEn" type="text" inputmode="numeric" maxlength="20" autocomplete="off">
 </div>
-
+<div class="modal-actions">
+<button id="closeCancel" class="btn-secondary" type="button">Cancel</button>
+<button id="closeSubmit" class="btn-primary" type="button">Confirm & Save</button>
+</div>
+</div>
+</div>
 
 <script>
 "use strict";
 
+// CURRENT OPEN DOWNTIME
+const lineSelect=document.getElementById("lineSelect");
 const machineSelect=document.getElementById("machineSelect");
 const body=document.getElementById("downtimeBody");
 const emptyState=document.getElementById("emptyState");
@@ -191,347 +307,581 @@ const addBtn=document.getElementById("addBtn");
 const refreshBtn=document.getElementById("refreshBtn");
 const saveBtn=document.getElementById("saveBtn");
 const message=document.getElementById("message");
-
 let currentRecords=[];
 const pending=new Map();
-
 
 function showMessage(text,type="ok"){
     message.textContent=text;
     message.className=`message show ${type}`;
 }
-
 function clearMessage(){
     message.textContent="";
     message.className="message";
 }
-
 function setModal(id,open){
     document.getElementById(id).classList.toggle("show",open);
 }
-
 function updateSaveState(){
     saveBtn.disabled=pending.size===0;
 }
-
-
 async function api(url,options={}){
     const controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),10000);
-
     try{
-        const response=await fetch(url,{
-            ...options,
-            signal:controller.signal,
-            headers:{
-                ...(options.body?{"Content-Type":"application/json"}:{}),
-                ...(options.headers||{})
-            }
-        });
-
+        const response=await fetch(url,{...options,signal:controller.signal,headers:{...(options.body?{"Content-Type":"application/json"}:{}),...(options.headers||{})}});
         let data={};
         try{data=await response.json();}catch(_){}
-
         if(!response.ok) throw new Error(data.error||`HTTP ${response.status}`);
         return data;
-
     }catch(error){
         if(error.name==="AbortError") throw new Error("Server request timeout.");
         throw error;
-
     }finally{
         clearTimeout(timer);
     }
 }
-
-
 function localNowMinute(){
     const d=new Date();
     d.setSeconds(0,0);
     const offset=d.getTimezoneOffset();
     return new Date(d.getTime()-offset*60000).toISOString().slice(0,16);
 }
-
-
 function durationHours(checkinIso,checkoutIso){
     if(!checkinIso||!checkoutIso) return null;
-
     const checkin=new Date(checkinIso);
     const checkout=new Date(checkoutIso);
-
     if(Number.isNaN(checkin.getTime())||Number.isNaN(checkout.getTime())||checkout<checkin) return null;
-
     return Math.round(((checkout-checkin)/3600000)*100)/100;
 }
-
-
-async function loadMachines(){
-    const data=await api("/api/downtime/machines");
-
+function resetMachineState(){
     machineSelect.innerHTML='<option value="">-- Select Machine --</option>';
-
-    for(const machine of data.machines||[]){
+    machineSelect.disabled=true;
+    currentRecords=[];
+    pending.clear();
+    addBtn.disabled=true;
+    refreshBtn.disabled=true;
+    updateSaveState();
+    renderRows();
+}
+async function loadLines(){
+    const data=await api("/api/downtime/lines");
+    lineSelect.innerHTML='<option value="">-- Select Line --</option>';
+    for(const line of data.lines||[]){
         const option=document.createElement("option");
-        option.value=machine;
-        option.textContent=machine;
-        machineSelect.appendChild(option);
+        option.value=line;
+        option.textContent=line;
+        lineSelect.appendChild(option);
     }
 }
-
-
+async function loadMachines(){
+    clearMessage();
+    resetMachineState();
+    const line=lineSelect.value;
+    if(!line) return;
+    machineSelect.disabled=true;
+    try{
+        const data=await api(`/api/downtime/machines?line=${encodeURIComponent(line)}`);
+        machineSelect.innerHTML='<option value="">-- Select Machine --</option>';
+        for(const machine of data.machines||[]){
+            const option=document.createElement("option");
+            option.value=machine;
+            option.textContent=machine;
+            machineSelect.appendChild(option);
+        }
+        machineSelect.disabled=false;
+    }catch(error){
+        showMessage(error.message,"error");
+    }
+}
 async function loadOpen(){
     clearMessage();
     pending.clear();
     updateSaveState();
-
     const machine=machineSelect.value;
     addBtn.disabled=!machine;
     refreshBtn.disabled=!machine;
-
     if(!machine){
         currentRecords=[];
         renderRows();
         return;
     }
-
     try{
         const data=await api(`/api/downtime/open?machine=${encodeURIComponent(machine)}`);
         currentRecords=Array.isArray(data.records)?data.records:[];
         renderRows();
-
     }catch(error){
         currentRecords=[];
         renderRows();
         showMessage(error.message,"error");
     }
 }
-
-
 function renderRows(){
     body.innerHTML="";
     recordCount.textContent=`${currentRecords.length} item(s)`;
-
+    if(!lineSelect.value){
+        emptyState.style.display="block";
+        emptyState.textContent="Select a line and machine to view open downtime.";
+        return;
+    }
     if(!machineSelect.value){
         emptyState.style.display="block";
         emptyState.textContent="Select a machine to view open downtime.";
         return;
     }
-
     if(currentRecords.length===0){
         emptyState.style.display="block";
         emptyState.textContent="No open downtime.";
         return;
     }
-
     emptyState.style.display="none";
-
     for(const record of currentRecords){
         const tr=document.createElement("tr");
-
         for(const value of [record.type,record.detail,record.en_checkin,record.checkin]){
             const td=document.createElement("td");
             td.textContent=value||"";
             tr.appendChild(td);
         }
-
         const checkoutTd=document.createElement("td");
         const checkout=document.createElement("input");
-
         checkout.type="datetime-local";
         checkout.className="checkout-input";
         checkout.min=record.checkin_iso||"";
         checkout.dataset.rowIndex=record.row_index;
-
         checkout.addEventListener("change",()=>{
             const hours=durationHours(record.checkin_iso,checkout.value);
             const durationCell=tr.querySelector(".duration");
             const statusCell=tr.querySelector(".row-status");
-
             if(hours===null){
                 pending.delete(record.row_index);
                 durationCell.textContent="";
                 statusCell.textContent="OPENED";
                 statusCell.className="row-status status-open";
-
                 if(checkout.value) showMessage("Check Out Time cannot be before Check In Time.","error");
-
             }else{
-                pending.set(record.row_index,{
-                    row_index:record.row_index,
-                    checkin:record.checkin,
-                    checkout:checkout.value
-                });
-
+                pending.set(record.row_index,{row_index:record.row_index,checkin:record.checkin,checkout:checkout.value});
                 durationCell.textContent=hours.toFixed(2);
                 statusCell.textContent="PENDING CLOSE";
                 statusCell.className="row-status status-pending";
                 clearMessage();
             }
-
             updateSaveState();
         });
-
         checkoutTd.appendChild(checkout);
         tr.appendChild(checkoutTd);
-
         const durationTd=document.createElement("td");
         durationTd.className="duration";
         tr.appendChild(durationTd);
-
         const statusTd=document.createElement("td");
         statusTd.textContent="OPENED";
         statusTd.className="row-status status-open";
         tr.appendChild(statusTd);
-
         body.appendChild(tr);
     }
 }
-
-
 async function openAddModal(){
+    const line=lineSelect.value;
     const machine=machineSelect.value;
-    if(!machine) return;
-
+    if(!line||!machine) return;
     try{
-        const data=await api(`/api/downtime/types?machine=${encodeURIComponent(machine)}`);
+        const data=await api(`/api/downtime/types?line=${encodeURIComponent(line)}&machine=${encodeURIComponent(machine)}`);
         const typeSelect=document.getElementById("addType");
-
         typeSelect.innerHTML='<option value="">-- Select Type --</option>';
-
         for(const type of data.types||[]){
             const option=document.createElement("option");
             option.value=type;
             option.textContent=type;
             typeSelect.appendChild(option);
         }
-
         document.getElementById("addMachine").value=machine;
         document.getElementById("addDetail").value="";
         document.getElementById("addEn").value="";
         document.getElementById("addCheckin").value=localNowMinute();
-
         setModal("addModal",true);
-
     }catch(error){
         showMessage(error.message,"error");
     }
 }
-
-
 async function submitAdd(){
     const button=document.getElementById("addSubmit");
-
     const payload={
+        line:lineSelect.value,
         machine:machineSelect.value,
         type:document.getElementById("addType").value,
         detail:document.getElementById("addDetail").value.trim(),
         en_checkin:document.getElementById("addEn").value.trim(),
         checkin:document.getElementById("addCheckin").value
     };
-
-    if(!payload.type||!payload.detail||!payload.en_checkin||!payload.checkin){
+    if(!payload.line||!payload.machine||!payload.type||!payload.detail||!payload.en_checkin||!payload.checkin){
         showMessage("Please complete all Add Downtime fields.","error");
         return;
     }
-
     if(!/^\d+$/.test(payload.en_checkin)){
         showMessage("EN Check In must contain numbers only.","error");
         return;
     }
-
     button.disabled=true;
-
     try{
-        const data=await api("/api/downtime/open",{
-            method:"POST",
-            body:JSON.stringify(payload)
-        });
-
+        const data=await api("/api/downtime/open",{method:"POST",body:JSON.stringify(payload)});
         setModal("addModal",false);
         await loadOpen();
         showMessage(data.message||"Downtime added successfully.");
-
     }catch(error){
         showMessage(error.message,"error");
-
     }finally{
         button.disabled=false;
     }
 }
-
-
 function openCloseModal(){
     if(pending.size===0) return;
-
     document.getElementById("closeEn").value="";
-    document.getElementById("closeSummary").textContent=
-        `Machine: ${machineSelect.value} | Close Downtime: ${pending.size} item(s)`;
-
+    document.getElementById("closeSummary").textContent=`Machine: ${machineSelect.value} | Close Downtime: ${pending.size} item(s)`;
     setModal("closeModal",true);
 }
-
-
 async function submitClose(){
     const button=document.getElementById("closeSubmit");
     const en=document.getElementById("closeEn").value.trim();
-
     if(!/^\d+$/.test(en)){
         showMessage("EN Check Out must contain numbers only.","error");
         return;
     }
-
     button.disabled=true;
-
     try{
-        const data=await api("/api/downtime/close",{
-            method:"POST",
-            body:JSON.stringify({
-                machine:machineSelect.value,
-                en_checkout:en,
-                items:Array.from(pending.values())
-            })
-        });
-
+        const data=await api("/api/downtime/close",{method:"POST",body:JSON.stringify({machine:machineSelect.value,en_checkout:en,items:Array.from(pending.values())})});
         setModal("closeModal",false);
         await loadOpen();
         showMessage(data.message||"Downtime saved successfully.");
-
     }catch(error){
         showMessage(error.message,"error");
-
         if(/refresh/i.test(error.message)) await loadOpen();
-
     }finally{
         button.disabled=false;
     }
 }
-
-
+lineSelect.addEventListener("change",loadMachines);
 machineSelect.addEventListener("change",loadOpen);
 refreshBtn.addEventListener("click",loadOpen);
 addBtn.addEventListener("click",openAddModal);
 saveBtn.addEventListener("click",openCloseModal);
-
 document.getElementById("addCancel").addEventListener("click",()=>setModal("addModal",false));
 document.getElementById("addSubmit").addEventListener("click",submitAdd);
 document.getElementById("closeCancel").addEventListener("click",()=>setModal("closeModal",false));
 document.getElementById("closeSubmit").addEventListener("click",submitClose);
-
-// Auto Refresh every 30 seconds
 setInterval(()=>{
-    if(machineSelect.value && pending.size===0){
-        loadOpen();
-    }
+    if(machineSelect.value&&pending.size===0) loadOpen();
 },30000);
-
 (async()=>{
-    try{
-        await loadMachines();
-    }catch(error){
-        showMessage(error.message,"error");
-    }
+    try{await loadLines();}
+    catch(error){showMessage(error.message,"error");}
 })();
-</script>
 
+// DOWNTIME HISTORY
+const historyEl=id=>document.getElementById(id);
+const historyCols=["Machine","Type Downtime","Detail","EN Check In","Timestamp Check In","EN Check Out","Timestamp Check Out","Duration (hr)","Status"];
+let historyResult=null,historyQuery="",historyRequest=0;
+
+function setHistoryTab(tab){
+    const isHistory=tab==="history";
+    historyEl("openPanel").hidden=isHistory;
+    historyEl("historyPanel").hidden=!isHistory;
+    for(const [id,active] of [["openTab",!isHistory],["historyTab",isHistory]]){
+        historyEl(id).classList.toggle("active",active);
+        historyEl(id).setAttribute("aria-selected",String(active));
+    }
+}
+function historyStatus(text,isError=false){
+    const el=historyEl("historyStatus");
+    el.textContent=text;
+    el.style.color=isError?"var(--danger)":"var(--muted)";
+}
+function clearHistoryResults(){
+    historyRequest++;
+    historyResult=null;
+    historyQuery="";
+    historyEl("historyDownload").disabled=true;
+    historyEl("historyHours").textContent="—";
+    historyEl("historyEvents").textContent="—";
+    historyEl("historyTopType").textContent="—";
+    historyEl("historyTopSub").textContent="By completed downtime hours";
+    historyEl("historyTrend").replaceChildren();
+    historyEl("trendEmpty").textContent="Search to view daily trend.";
+    historyEl("trendEmpty").style.display="block";
+    historyEl("historyRanking").textContent="Search to view ranking.";
+    historyEl("historyHead").replaceChildren();
+    historyEl("historyBody").replaceChildren();
+    historyEl("historyCount").textContent="0 item(s)";
+    historyEl("historyEmpty").style.display="block";
+    historyEl("historyEmpty").textContent="Search to view records.";
+}
+function historyDateToday(){
+    const now=new Date();
+    const local=new Date(now.getTime()-now.getTimezoneOffset()*60000);
+    return local.toISOString().slice(0,10);
+}
+async function initHistoryLines(){
+    const data=await api("/api/downtime/lines");
+    const select=historyEl("historyLine");
+    select.replaceChildren(new Option("-- Select Line --",""));
+    for(const line of data.lines||[]) select.add(new Option(line,line));
+}
+async function historyLineChanged(){
+    clearHistoryResults();
+    const line=historyEl("historyLine").value;
+    const select=historyEl("historyMachine");
+    select.replaceChildren(new Option("-- Select Machine --",""));
+    select.disabled=true;
+    historyStatus("Select a machine and click Search.");
+    if(!line) return;
+    try{
+        const data=await api(`/api/downtime/machines?line=${encodeURIComponent(line)}`);
+        if(historyEl("historyLine").value!==line) return;
+        for(const machine of data.machines||[]) select.add(new Option(machine,machine));
+        select.disabled=false;
+    }catch(error){
+        historyStatus(error.message,true);
+    }
+}
+function historyParams(){
+    const line=historyEl("historyLine").value;
+    const machine=historyEl("historyMachine").value;
+    const from=historyEl("historyFrom").value;
+    const to=historyEl("historyTo").value;
+    if(!line||!machine||!from||!to) throw new Error("Please select Line, Machine, From Date and To Date.");
+    if(from>to) throw new Error("To Date cannot be before From Date.");
+    return new URLSearchParams({line,machine,from_date:from,to_date:to}).toString();
+}
+function historySvgElement(name,attrs={},text=""){
+    const el=document.createElementNS("http://www.w3.org/2000/svg",name);
+    for(const [key,value] of Object.entries(attrs)) el.setAttribute(key,String(value));
+    if(text) el.textContent=text;
+    return el;
+}
+function renderHistoryTrend(trend){
+    const svg=historyEl("historyTrend");
+    svg.replaceChildren();
+    const data=Array.isArray(trend)?trend:[];
+    const empty=historyEl("trendEmpty");
+    if(!data.length){
+        empty.style.display="block";
+        empty.textContent="No trend data.";
+        return;
+    }
+    empty.style.display="none";
+    const width=Math.max(760,data.length*64+110);
+    const height=290;
+    const left=75,right=25,top=20,bottom=65;
+    const plotW=width-left-right;
+    const plotH=height-top-bottom;
+    const ymax=24;
+    svg.setAttribute("viewBox",`0 0 ${width} ${height}`);
+    svg.style.minWidth=width+"px";
+    const x=i=>left+(data.length===1?plotW/2:i*plotW/(data.length-1));
+    const y=v=>top+plotH-(Number(v)||0)/ymax*plotH;
+    // Y-axis: 0 to 21 hours, step 3
+    for(let value=0;value<=24;value+=3){
+        const py=y(value);
+        svg.appendChild(historySvgElement("line",{
+            x1:left,y1:py,x2:width-right,y2:py,
+            class:"grid-line"
+        }));
+        svg.appendChild(historySvgElement("text",{
+            x:left-12,y:py+4,"text-anchor":"end"
+        },String(value)));
+    }
+    // X-axis: production dates
+    const step=Math.max(1,Math.ceil(data.length/12));
+    data.forEach((point,i)=>{
+        if(i%step===0||i===data.length-1){
+            svg.appendChild(historySvgElement("text",{
+                x:x(i),y:height-45,"text-anchor":"middle"
+            },String(point.date||"").slice(5)));
+        }
+    });
+    // Y-axis label
+    svg.appendChild(historySvgElement("text",{
+        x:18,y:top+plotH/2,
+        "text-anchor":"middle",
+        transform:`rotate(-90 18 ${top+plotH/2})`,
+        "font-size":"13",
+        "font-weight":"700"
+    },"Downtime (hr)"));
+    // X-axis label
+    svg.appendChild(historySvgElement("text",{
+        x:left+plotW/2,y:height-12,
+        "text-anchor":"middle",
+        "font-size":"13",
+        "font-weight":"700"
+    },"Production Date"));
+    // Trend line
+    const path=data.map((p,i)=>
+        `${i===0?"M":"L"}${x(i).toFixed(2)},${y(p.hours).toFixed(2)}`
+    ).join(" ");
+    svg.appendChild(historySvgElement("path",{
+        d:path,class:"trend-line"
+    }));
+    // Data points and tooltips
+    data.forEach((p,i)=>{
+        const circle=historySvgElement("circle",{
+            cx:x(i),cy:y(p.hours),r:4,class:"trend-dot"
+        });
+        circle.appendChild(historySvgElement(
+            "title",{},
+            `${p.date}: ${Number(p.hours||0).toFixed(2)} hr`
+        ));
+        svg.appendChild(circle);
+    });
+}
+function renderHistoryRanking(ranking){
+    const box=historyEl("historyRanking");
+    box.replaceChildren();
+    if(!ranking?.length){
+        box.textContent="No downtime events in selected period.";
+        return;
+    }
+    const max=Math.max(...ranking.map(x=>Number(x.hours)||0),0.00001);
+    ranking.forEach((item,i)=>{
+        const row=document.createElement("div");
+        row.className="rank-row";
+        const head=document.createElement("div");
+        head.className="rank-head";
+        const name=document.createElement("span");
+        name.textContent=`${i+1}. ${item.type}`;
+        const hours=document.createElement("span");
+        hours.textContent=`${Number(item.hours||0).toFixed(2)} hr`;
+        head.append(name,hours);
+        const bg=document.createElement("div");
+        bg.className="rank-bar-bg";
+        const bar=document.createElement("div");
+        bar.className="rank-bar";
+        bar.style.width=`${Math.max(0,Math.min(100,(Number(item.hours)||0)/max*100))}%`;
+        bg.appendChild(bar);
+        const sub=document.createElement("div");
+        sub.className="rank-sub";
+        sub.textContent=`${item.events} event(s)`;
+        row.append(head,bg,sub);
+        box.appendChild(row);
+    });
+}
+function renderHistoryTable(data){
+    const head=historyEl("historyHead");
+    const tbody=historyEl("historyBody");
+    head.replaceChildren();
+    tbody.replaceChildren();
+    for(const col of historyCols){
+        const th=document.createElement("th");
+        th.textContent=col;
+        head.appendChild(th);
+    }
+    const records=Array.isArray(data.records)?data.records:[];
+    historyEl("historyCount").textContent=`${records.length} item(s)`;
+    historyEl("historyEmpty").style.display=records.length?"none":"block";
+    historyEl("historyEmpty").textContent="No records in selected period.";
+    for(const record of records){
+        const tr=document.createElement("tr");
+        for(const col of historyCols){
+            const td=document.createElement("td");
+            td.textContent=String(record[col]??"");
+            if(col==="Status"){
+                td.className=String(record[col]).toUpperCase()==="CLOSED"?"status-closed":"status-open";
+            }
+            tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+    }
+}
+async function searchHistory(){
+    let params;
+    try{
+        params=historyParams();
+    }catch(error){
+        historyStatus(error.message,true);
+        return;
+    }
+    const seq=++historyRequest;
+    historyResult=null;
+    historyQuery="";
+    const button=historyEl("historySearch");
+    button.disabled=true;
+    historyEl("historyDownload").disabled=true;
+    historyStatus("Loading history...");
+    try{
+        const data=await api(`/api/downtime/history?${params}`);
+        if(seq!==historyRequest) return;
+        historyResult=data;
+        historyQuery=params;
+        historyEl("historyHours").textContent=Number(data.summary?.total_downtime_hr||0).toFixed(2);
+        historyEl("historyEvents").textContent=String(data.summary?.total_events??0);
+        const top=data.ranking?.[0];
+        historyEl("historyTopType").textContent=top?.type||"—";
+        historyEl("historyTopSub").textContent=top?`${Number(top.hours||0).toFixed(2)} hr · ${top.events} event(s)`:"No downtime events";
+        renderHistoryTrend(data.trend);
+        renderHistoryRanking(data.ranking);
+        renderHistoryTable(data);
+        historyEl("historyDownload").disabled=false;
+        historyStatus(`Showing ${data.machine} · ${data.from_date} to ${data.to_date} (production day 07:00–07:00)`);
+    }catch(error){
+        if(seq===historyRequest) historyStatus(error.message,true);
+    }finally{
+        button.disabled=false;
+    }
+}
+async function downloadHistory(){
+    if(!historyResult||!historyQuery) return;
+    const button=historyEl("historyDownload");
+    button.disabled=true;
+    try{
+        const controller=new AbortController();
+        const timer=setTimeout(()=>controller.abort(),30000);
+        let response;
+        try{
+            response=await fetch(`/api/downtime/history/download?${historyQuery}`,{signal:controller.signal,cache:"no-store"});
+        }finally{
+            clearTimeout(timer);
+        }
+        if(!response.ok){
+            let error={};
+            try{error=await response.json();}catch(_){}
+            throw new Error(error.error||`Download failed (HTTP ${response.status})`);
+        }
+        const blob=await response.blob();
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=url;
+        a.download=`Downtime_History_${historyResult.machine}_${historyResult.from_date}_${historyResult.to_date}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }catch(error){
+        historyStatus(error.name==="AbortError"?"Download timeout.":error.message,true);
+    }finally{
+        button.disabled=!historyResult;
+    }
+}
+historyEl("openTab").addEventListener("click",()=>setHistoryTab("open"));
+historyEl("historyTab").addEventListener("click",()=>setHistoryTab("history"));
+historyEl("historyLine").addEventListener("change",historyLineChanged);
+historyEl("historyMachine").addEventListener("change",()=>{
+    clearHistoryResults();
+    historyStatus("Click Search to load selected machine.");
+});
+for(const id of ["historyFrom","historyTo"]){
+    historyEl(id).addEventListener("change",()=>{
+        clearHistoryResults();
+        historyStatus("Date range changed. Click Search.");
+    });
+}
+historyEl("historySearch").addEventListener("click",searchHistory);
+historyEl("historyDownload").addEventListener("click",downloadHistory);
+const yesterday=new Date();
+yesterday.setDate(yesterday.getDate()-1);
+const yesterdayText=[
+    yesterday.getFullYear(),
+    String(yesterday.getMonth()+1).padStart(2,"0"),
+    String(yesterday.getDate()).padStart(2,"0")
+].join("-");
+historyEl("historyFrom").value=yesterdayText;
+historyEl("historyTo").value=historyDateToday();
+initHistoryLines().catch(error=>historyStatus(error.message,true));
+</script>
 </body>
 </html>

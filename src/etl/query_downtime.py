@@ -10,9 +10,20 @@ NIGHT_SHIFT_START = dt_time(19, 0)
 REQUIRED_COLUMNS = ["Type Downtime", "Detail", "EN Check In", "Timestamp Check In", "EN Check Out", "Timestamp Check Out", "Status"]
 
 def get_machine_files() -> dict[str, Path]:
-    if not DOWNTIME_DIR.exists():
+    if not DOWNTIME_DIR.is_dir():
         raise FileNotFoundError(f"Directory not found: {DOWNTIME_DIR}")
-    return {file.stem.strip(): file for file in sorted(DOWNTIME_DIR.glob("*.csv")) }
+    machine_files = {}
+    for line_dir in sorted(DOWNTIME_DIR.iterdir()):
+        if not line_dir.is_dir() or line_dir.name.startswith("."):
+            continue
+        for file in sorted(line_dir.glob("*.csv")):
+            if not file.is_file():
+                continue
+            machine = file.stem.strip()
+            if machine in machine_files:
+                raise ValueError(f"Duplicate machine: {machine}")
+            machine_files[machine] = file
+    return machine_files
     
 def _read_csv_file(file_path: Path) -> pd.DataFrame:
     for encoding in ["utf-8-sig", "utf-8", "cp874", "tis-620"]:
@@ -76,7 +87,7 @@ def get_downtime_events_by_date(production_date: date) -> pd.DataFrame:
         status = str(row["Status"]).upper().strip()
         if pd.isna(event_end):
             if status == "OPENED":
-                event_end = window_end
+                event_end = min(datetime.now(), window_end)
             else:
                 continue
         start_clip = max(event_start, window_start)
@@ -170,9 +181,11 @@ def get_downtime_yesterday():
 #     downtime_data, downtime_type, downtime_df, production_date = get_downtime_yesterday()
 #     print("Production Date:",production_date)
 #     print("\nDowntime Data")
+#     print(downtime_data)
 #     for machine, hour in (downtime_data.items()):
 #         print(f"{machine:15s}: "f"{hour:.2f} hr")
 #     print("\nDowntime Type")
+#     print(downtime_type)
 #     for machine, values in (downtime_type.items()):
 #         print(machine,values)
 #     print("\nDowntime DF")
@@ -180,3 +193,9 @@ def get_downtime_yesterday():
 #         if not downtime_df.empty
 #         else "Empty DataFrame"
 #     )
+
+# if __name__ == "__main__":
+#     machine_files = get_machine_files()
+#     print(f"Total Machines: {len(machine_files)}")
+#     for machine, path in machine_files.items():
+#         print(f"{machine} -> {path.parent.name}")
