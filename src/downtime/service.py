@@ -296,33 +296,43 @@ class DowntimeStore:
         }
         for _, row in df.iterrows():
             record = {col: str(row[col]) for col in CSV_COLUMNS}
+
             try:
                 checkin = datetime.strptime(record["Timestamp Check In"].strip(), STORE_TIME_FORMAT)
             except ValueError:
                 continue
+            
             status = record["Status"].strip().upper()
+            if status not in ("OPENED" ,"CLOSED"):
+                continue
             if status == "CLOSED":
                 try:
                     effective_end = datetime.strptime(record["Timestamp Check Out"].strip(), STORE_TIME_FORMAT)
                 except ValueError:
                     continue
-            elif status == "OPENED":
-                effective_end = now
             else:
-                continue
+                effective_end = now
+
             if effective_end <= checkin:
                 continue
+            
             clip_start = max(checkin, start)
             clip_end = min(effective_end, end)
             if clip_end <= clip_start:
                 continue
+            
+            records.append((checkin, record))
+            
+            if status == "OPENED":
+                continue
+
             downtime_type = record["Type Downtime"].strip() or "(Unspecified)"
             hours = (clip_end - clip_start).total_seconds() / 3600
-            records.append((checkin, record))
+            
             intervals.append((clip_start, clip_end))
-            # Ranking: count each event's actual duration, including overlaps.
             type_hours[downtime_type] = type_hours.get(downtime_type, 0.0) + hours
             type_events[downtime_type] = type_events.get(downtime_type, 0) + 1
+        
         # Total Downtime: merge overlapping intervals, matching OEE.
         intervals.sort(key=lambda x: x[0])
         merged = []
@@ -362,7 +372,7 @@ class DowntimeStore:
             "to_date": last.date().isoformat(),
             "summary": {
                 "total_downtime_hr": round(total_hours, 4),
-                "total_events": len(records),
+                "total_events": sum(type_events.values()),
                 "top_downtime_type": ranking_data[0]["type"] if ranking_data else None
             },
             "trend": trend_data,
