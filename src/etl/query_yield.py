@@ -1,129 +1,175 @@
-import requests
+"""Read FITS Yield and Duration per process and physical machine."""
+import configparser
+import math
+import os
+import re
+import time
 import xml.etree.ElementTree as ET
-import pandas as pd
-
-def FIT_Query_Table():
-    url = "https://service.fabrinet.co.th/FBNFITSService/FBNFITSServices.svc?wsdl"
-    xml_soap = """<?xml version='1.0'?>
-    <x:Envelope xmlns:x="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem='http://tempuri.org/'>
-        <x:Header/>
-        <x:Body>
-            <tem:fn_Query_Table>
-            <tem:project_id>729</tem:project_id>
-            <tem:user_name>tech_ws</tem:user_name>
-            <tem:user_password>kG7m@691</tem:user_password>
-            <tem:model>-</tem:model>
-            <tem:operation>-</tem:operation>
-            <tem:revision>2.4</tem:revision>
-            <tem:serial>-</tem:serial>
-            <tem:parameters>Yield</tem:parameters>
-            <tem:fsp>,</tem:fsp>
-        </tem:fn_Query_Table>
-        </x:Body>
-    </x:Envelope>"""
+from pathlib import Path
+from xml.sax.saxutils import escape
+import requests
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.ini"
+FITS_URL = os.getenv("FITS_URL", "https://service.fabrinet.co.th/FBNFITSService/FBNFITSServices.svc?wsdl")
+PROJECT_ID = os.getenv("FITS_PROJECT_ID", "729")
+PROCESS_KEYS = {"IEOL_S": "IEOL_SHORT", "IEOL_L": "IEOL_LONG"}
+FIELDS = ("input_first_opn", "total_last_opn", "pass_last_opn", "duration_hr")
+# 1. FITS API
+def _query(session, method, opn="-", serial="-", parameters=""):
+    """Send SOAP request and return XML."""
+    user, password = os.getenv("FITS_USER"), os.getenv("FITS_PASSWORD")
+    if not user or not password:
+        raise RuntimeError("Set FITS_USER and FITS_PASSWORD in Windows Environment Variables")
+    values = {
+        "project_id": PROJECT_ID, "user_name": user, "user_password": password,
+        "model": "Main line", "operation": opn, "revision": "2.9",
+        "serial": serial, "parameters": parameters, "fsp": ","
+    }
+    fields = "".join(f"<{key}>{escape(str(value))}</{key}>" for key, value in values.items())
+    soap = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+        f'<s:Body><{method} xmlns="http://tempuri.org/">{fields}</{method}></s:Body>'
+        '</s:Envelope>'
+    ).encode("utf-8")
     headers = {
-        'Content-Type': 'text/xml; charset=UTF-8', 'SOAPAction': '"http://tempuri.org/IFBNFITSServices/fn_Query_Table"'
+        "Content-Type": "text/xml; charset=utf-8",
+        "SOAPAction": f'"http://tempuri.org/IFBNFITSServices/{method}"'
     }
-    response = requests.request("POST", url, headers=headers, data=xml_soap)
-    # print(response.text)
-    aResult = xml_to_dataframe(response.text)
-    return aResult
-
-def xml_to_dataframe(xml_text: str) -> pd.DataFrame:
-    root = ET.fromstring(xml_text.strip())
-    data = []
-    for row in root.findall(".//{*}RESULT"):
-        operation_description = row.findtext("./{*}operation_description")
-        # ข้าม RESULT ที่ไม่ใช่ข้อมูลแต่ละแถว
-        if not operation_description:
+    for attempt in range(3):
+        try:
+            response = session.post(FITS_URL, headers=headers, data=soap, timeout=(5, 30))
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            fault = root.find(".//{http://schemas.xmlsoap.org/soap/envelope/}Fault")
+            if fault is not None:
+                message = fault.findtext("faultstring", default="Unknown SOAP fault")
+                raise RuntimeError(f"FITS {method}: {message}")
+            return root
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            if attempt == 2:
+                raise
+            print(f"FITS connection retry {attempt + 1}/3: {type(exc).__name__}")
+            time.sleep(attempt + 1)
+# 2. GET SN + STATION + DURATION
+def _serials(session, opn, result):
+    """Get unique SNs for PASS or FAIL."""
+    root = _query(session, "fn_Query_Table", opn, result, "Yield_SN")
+    serials = set()
+    for row in root.iter():
+        if row.tag.rsplit("}", 1)[-1] != "RESULT":
             continue
-        if ":" in operation_description:
-            operation_id, operation_name = operation_description.split(":", 1)
-        else:
-            operation_id = ""
-            operation_name = operation_description
-        data.append({
-            "model_type": row.findtext(
-                "./{*}model_type",
-                default=""
-            ).strip(),
-            "operation_id": operation_id.strip(),
-            "operation_name": operation_name.strip(),
-            "total": int(
-                row.findtext("./{*}total", default="0")
-            ),
-            "pass": int(
-                row.findtext("./{*}pass", default="0")
-            ),
-            "fail": int(
-                row.findtext("./{*}Fail", default="0")
-            ),
-            "percentage": float(
-                row.findtext("./{*}percentage", default="0")
-            )
-        })
-    return pd.DataFrame(data)
-
-def get_yield_yesterday():
-    df = FIT_Query_Table()    
-    # print(df.loc[df['model_type'] == "Main line"].to_string())
-    # print("="*100)
-    
-    AB2B = df.loc[df['operation_id'].isin(['IN400', 'IN405', 'IN410', 'IN412', 'IN415', 'IN420', 'IN425'])]
-    AA_FAS_SAS = df.loc[df['operation_id'].isin(['IN450', 'IN460', 'IN485', 'IN490', 'IN500'])]
-    AA_TP = df.loc[df['operation_id'].isin(['IN510','IN520'])]
-    IEOL_S = df.loc[df['operation_id'].isin(['FA210', 'FA220', 'FA230'])]
-    IEOL_L = df.loc[df['operation_id'].isin(['FA235', 'FA240', 'FA250', 'FA255', 'FA260', 'FA270'])]
-    
-    AB2B_input_first_opn        = int(AB2B.iloc[0]["total"])
-    AB2B_total_last_opn         = int(AB2B.iloc[-1]["total"])
-    AB2B_pass_last_opn          = int(AB2B.iloc[-1]["pass"])
-    
-    AA_FAS_SAS_input_first_opn  = int(AA_FAS_SAS.iloc[0]["total"])
-    AA_FAS_SAS_total_last_opn   = int(AA_FAS_SAS.iloc[-1]["total"])
-    AA_FAS_SAS_pass_last_opn    = int(AA_FAS_SAS.iloc[-1]["pass"])
-    
-    AA_TP_input_first_opn       = int(AA_TP.iloc[0]["total"])
-    AA_TP_total_last_opn        = int(AA_TP.iloc[-1]["total"])
-    AA_TP_pass_last_opn         = int(AA_TP.iloc[-1]["pass"])
-    
-    EOL_S_input_first_opn         = int(IEOL_S.iloc[0]["total"])
-    EOL_S_total_last_opn          = int(IEOL_S.iloc[-1]["total"])
-    EOL_S_pass_last_opn           = int(IEOL_S.iloc[-1]["pass"])
-    
-    EOL_L_input_first_opn         = int(IEOL_L.iloc[0]["total"])
-    EOL_L_total_last_opn          = int(IEOL_L.iloc[-1]["total"])
-    EOL_L_pass_last_opn           = int(IEOL_L.iloc[-1]["pass"])
-    
-    return {
-        "AB2B": {
-            "input_first_opn":  AB2B_input_first_opn,
-            "total_last_opn":   AB2B_total_last_opn,
-            "pass_last_opn":    AB2B_pass_last_opn
-        },
-        "AA_FAS_SAS": {
-            "input_first_opn":  AA_FAS_SAS_input_first_opn,
-            "total_last_opn":   AA_FAS_SAS_total_last_opn,
-            "pass_last_opn":    AA_FAS_SAS_pass_last_opn
-        },
-        "AA_TP": {
-            "input_first_opn":  AA_TP_input_first_opn,
-            "total_last_opn":   AA_TP_total_last_opn,
-            "pass_last_opn":    AA_TP_pass_last_opn
-        },
-        "IEOL_SHORT": {
-            "input_first_opn":  EOL_S_input_first_opn,
-            "total_last_opn":   EOL_S_total_last_opn,
-            "pass_last_opn":    EOL_S_pass_last_opn
-        },
-        "IEOL_LONG": {
-            "input_first_opn":  EOL_L_input_first_opn,
-            "total_last_opn":   EOL_L_total_last_opn,
-            "pass_last_opn":    EOL_L_pass_last_opn,
+        for field in row:
+            if field.tag.rsplit("}", 1)[-1] == "serial_no" and field.text:
+                serials.add(field.text.strip())
+    return serials
+def _opn_records(session, opn):
+    """Get SN details; missing data and retests are tracked."""
+    passed, failed = _serials(session, opn, "PASS"), _serials(session, opn, "FAIL")
+    records = {}
+    for sn in sorted(passed | failed):
+        root = _query(session, "fn_Query", opn, sn, "STATION_NAME,DURATION")
+        message = " ".join(
+            (node.text or "") for node in root.iter()
+            if node.tag.rsplit("}", 1)[-1] == "Message"
+        )
+        station_match = re.search(r"(?:\d+_)?STATION_NAME\s*:\s*([^,;\r\n]+)", message, re.I)
+        duration_match = re.search(r"(?:\d+_)?DURATION\s*:\s*(-?\d+(?:\.\d+)?)", message, re.I)
+        station = station_match.group(1).strip().upper() if station_match else None
+        seconds = float(duration_match.group(1)) if duration_match else None
+        result = "RETEST" if sn in passed and sn in failed else "PASS" if sn in passed else "FAIL"
+        issues = []
+        if result == "RETEST":
+            issues.append("RETEST_CONFLICT")
+        if not station:
+            issues.append("STATION_NAME")
+        if seconds is None:
+            issues.append("DURATION")
+        elif not math.isfinite(seconds) or seconds < 0:
+            issues.append("INVALID_DURATION")
+            seconds = None
+        records[sn] = {
+            "result": result,
+            "station_name": station,
+            "duration_hr": seconds / 3600 if seconds is not None else 0.0,
+            "reason": issues
         }
+    return records
+# 3. CONFIG
+def _settings(config, section):
+    """Read OPN list and station-to-machine mapping."""
+    if not config.has_section(section):
+        raise ValueError(f"Missing config section [{section}]")
+    opns = [v.strip() for v in config.get(section, "OPN_LIST").split(",") if v.strip()]
+    if not opns or any(";" in opn for opn in opns):
+        raise ValueError(f"Invalid OPN_LIST in [{section}]; use commas")
+    mapping = {
+        key.upper(): value.strip()
+        for key, value in config.items(section)
+        if key.upper().startswith(("FBN_", "HVM_"))
     }
-    
-# yield_machine = get_yield_yesterday()
-
-# for MC in yield_machine.items():
-#     print(MC)
+    if not mapping or any(not machine for machine in mapping.values()):
+        raise ValueError(f"Missing/empty station mapping in [{section}]")
+    return opns, mapping
+def _empty():
+    return dict.fromkeys(FIELDS, 0)
+# 4. MAIN YIELD CALCULATION
+def get_yield_yesterday(MC_DICT, config_path=CONFIG_PATH):
+    """Return process totals, machine totals and uncount SNs."""
+    config = configparser.ConfigParser(interpolation=None)
+    if not config.read(config_path, encoding="utf-8-sig"):
+        raise FileNotFoundError(f"Cannot read config: {config_path}")
+    output, cache = {}, {}
+    with requests.Session() as session:
+        for process in MC_DICT:
+            opns, mapping = _settings(config, PROCESS_KEYS.get(process, process))
+            data = _empty()
+            data.update(
+                machines={name: _empty() for name in dict.fromkeys(mapping.values())},
+                uncount={},
+                retest_count=0,
+                data_quality_ok=True
+            )
+            for index, opn in enumerate(opns):
+                if opn not in cache:
+                    print(f"FITS Yield: querying {opn}")
+                    cache[opn] = _opn_records(session, opn)
+                first, last = index == 0, index == len(opns) - 1
+                for sn, record in cache[opn].items():
+                    machine = mapping.get(record["station_name"])
+                    passed = record["result"] == "PASS"
+                    # Process-level yield
+                    if first:
+                        data["input_first_opn"] += 1
+                    if last:
+                        data["total_last_opn"] += 1
+                        data["pass_last_opn"] += int(passed)
+                    if record["result"] == "RETEST":
+                        data["retest_count"] += 1
+                    # Track incomplete / conflicting data
+                    issues = record["reason"].copy()
+                    if record["station_name"] and machine is None:
+                        issues.append("UNMAPPED_STATION")
+                    if issues:
+                        data["uncount"].setdefault(opn, {})[sn] = {
+                            **record,
+                            "reason": issues,
+                            "excluded_from_machine_yield": machine is None,
+                            "result_unresolved": record["result"] == "RETEST"
+                        }
+                        data["data_quality_ok"] = False
+                    if machine is None:
+                        continue
+                    # Machine-level yield and active duration
+                    values = data["machines"][machine]
+                    if first:
+                        values["input_first_opn"] += 1
+                    if last:
+                        values["total_last_opn"] += 1
+                        values["pass_last_opn"] += int(passed)
+                    values["duration_hr"] += record["duration_hr"]
+                    data["duration_hr"] += record["duration_hr"]
+            data["duration_hr"] = round(data["duration_hr"], 6)
+            for values in data["machines"].values():
+                values["duration_hr"] = round(values["duration_hr"], 6)
+            output[process] = data
+    return output
