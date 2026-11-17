@@ -1,0 +1,114 @@
+# OEE Dashboard
+
+Automatically generates a daily **OEE report** (Availability × Performance × Quality)
+for each physical machine and displays it on a web dashboard.
+It also includes a **Downtime Entry** page where operators record machine downtime.
+
+## How it works
+
+```
+Downtime Entry page ──► Downtime CSV (shared drive)  ─┐
+FITS (yield, first-pass, active time) ────────────────┤
+                                                       ▼
+                main_daily.py  (Task Scheduler, every day 08:00)
+                  1. src/etl/query_downtime.py        read downtime CSV
+                  2. src/etl/query_yield.py           read yield + active time from FITS
+                  3. src/calculation/oee_cal.py       calculate A / P / Q / OEE per machine
+                  4. src/analytics/smart_insight.py   summary / focus / action
+                  5. src/storage/snapshot.py          write <HISTORY PATH>/YYYY-MM-DD.json
+                                                       ▼
+                app.py  (web server)  ──►  OEE Dashboard  (select a date to load its JSON)
+```
+
+## Production day
+
+One production day has two shifts, **night shift first**:
+
+| Shift | Time (production date D) | Breaks |
+|-------|--------------------------|--------|
+| Night | D-1 19:01 → D 07:00 | 00:00–01:00, 04:30–05:00 |
+| Day   | D 07:01 → D 19:00   | 11:00–12:00, 16:30–17:00 |
+
+Example: production date **2026-11-16** = 2026-11-15 19:01 → 2026-11-16 19:00.
+Breaks total 3 hr, so `PLANNED_TIME = 21` hr.
+
+`main_daily.py` runs at **08:00** and always calculates **yesterday's** production day.
+The dashboard switches to the new day automatically from 08:30.
+
+## Formulas
+
+| KPI | Formula |
+|-----|---------|
+| Availability | Operating time / Planned time, where Operating = max(Planned − Downtime, FITS active time) |
+| Performance | Σ(output_i / IDEAL_SPEED_i) / Operating time |
+| Quality | Pass / Total at the last OPN (First-Pass Yield from FITS) |
+| OEE | A × P × Q |
+
+If a machine's data is incomplete (missing downtime file, invalid downtime rows,
+FITS data issues, ...), its KPIs show **DATA INCOMPLETE** and the reason is listed
+under *Data Quality* on the dashboard.
+
+## Machines and processes
+
+Configured in `config/config.ini` (OPN list, `IDEAL_SPEED`, targets, FITS station → machine).
+
+| Line | Processes | Machines |
+|------|-----------|----------|
+| AB2B | AB2B | AB2B01, AB2B02 |
+| AA | AA_FAS_SAS + AA_TP | AA01, AA02 |
+| IEOL Bring-up / CRS | IEOL_BRINGUP + IEOL_CRS (same machines, different programs) | IEOL_BRINGUP_CRS01–03 |
+| IEOL Short | IEOL_SHORT | IEOL_SR01–03 |
+| IEOL Long | IEOL_LONG | IEOL_LR01–03 |
+
+IEOL flow: IEOL_BRINGUP → IEOL_SHORT → IEOL_LONG → IEOL_CRS
+
+## Setup (server)
+
+1. Install dependencies
+
+   ```
+   pip install -r requirements.txt
+   ```
+
+2. Set Windows Environment Variables
+
+   | Name | Required | Note |
+   |------|----------|------|
+   | `FITS_USER` | yes | FITS account |
+   | `FITS_PASSWORD` | yes | FITS password |
+   | `FITS_URL` | no | default: Fabrinet FITS service |
+   | `FITS_PROJECT_ID` | no | default `729` |
+
+3. Check paths in `config/config.ini`
+   - `[HISTORY] PATH` – folder for the daily JSON files
+   - `[DOWNTIME] record_path`, `type_path` – downtime CSV folders
+
+4. Run the daily report once by hand and confirm the JSON file is created
+
+   ```
+   python main_daily.py
+   ```
+
+5. Windows Task Scheduler
+   - Trigger: daily at **08:00**
+   - Action: `python main_daily.py`
+   - **Start in**: the repository folder
+   - Run as a user that can access the shared drive and has the FITS variables
+   - Settings: *If the task fails, restart every 15 minutes* (3–4 attempts)
+
+6. Web server
+
+   ```
+   waitress-serve --host 0.0.0.0 --port 5000 app:app
+   ```
+
+## Web pages and API
+
+| Path | Description |
+|------|-------------|
+| `/` | OEE Dashboard |
+| `/downtime` | Downtime Entry and Downtime History |
+| `/api/oee/dates` | Dates that have a JSON snapshot |
+| `/api/oee/dashboard?date=YYYY-MM-DD` | Snapshot of the selected date (default: latest) |
+
+> The Downtime Entry page has no login. Use it on the internal network only.
