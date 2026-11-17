@@ -25,14 +25,14 @@ def main():
     print("=" * 20, " downtime_data ", "=" * 20)
     downtime_data, downtime_type, downtime_df, production_date = get_downtime_yesterday()
     print("Production Date:\t", production_date)
-    for machine, hour in downtime_data.items():
-        print(f"{machine:6s} : {hour:.2f} hr")
+    # for machine, hour in downtime_data.items():
+    #     print(f"{machine:6s} : {hour:.2f} hr")
     print("====================== Downtime Type ======================")
     for machine, value in downtime_type.items():
         print(machine)
         print(value)
-    print("====================== downtime df ======================")
-    print(downtime_df)
+    # print("====================== downtime df ======================")
+    # print(downtime_df)
 
     # 2. ดึงข้อมูล Yield
     print("=" * 20, " Yield_data ", "=" * 20)
@@ -45,10 +45,10 @@ def main():
         print(f"Duration: {data['duration_hr']} hr")
         for machine, values in data["machines"].items():
             print(f"  {machine}: {values}")
-    
+
     # 3. คำนวณ OEE
     print("=" * 20, " oee_result ", "=" * 20)
-    oee_data = calculate_oee(downtime_data=downtime_data, yield_data=yield_data)
+    oee_data = calculate_oee(downtime_data=downtime_data, yield_data=yield_data, downtime_type_data=downtime_type)
     for machine, row in oee_data.items():
         detail = row["detail"]
         bar = row["time_bar"]
@@ -73,7 +73,6 @@ def main():
             print(f"  {name}: {hours:.3f} hr")
         if row["data_quality_issues"]:
             print(f"Data Quality Issues: {row['data_quality_issues']}")
-    quit()
 
     # 4. สร้าง Smart Insight / Dashboard Data
     print("=" * 20, " insights ", "=" * 20)

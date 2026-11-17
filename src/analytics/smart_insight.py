@@ -1,6 +1,17 @@
+from src.calculation.oee_cal import _machine_name
+
 # ==========================================================
 # Helper
 # ==========================================================
+def normalize_machine_keys(data):
+    """ORA#865871 AB2B01 -> AB2B01 ให้ตรงกับ oee_result"""
+    out = {}
+    for name, value in (data or {}).items():
+        key = _machine_name(name)
+        if key in out:
+            raise ValueError(f"Duplicate machine after normalize: {key}")
+        out[key] = value
+    return out
 def safe_number(value, default=0):
     try:
         if value is None:
@@ -142,8 +153,10 @@ def get_machine_main_loss(machine):
 # ==========================================================
 # Machine Summary
 # ==========================================================
-def generate_machine_summary(oee_result, downtime_data, downtime_type):
+def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dict):
     machines = {}
+    print("oee_result:\t", oee_result.keys())
+    print("downtime_type:\t", downtime_type.keys())
     for name, item in oee_result.items():
         ####################################################
         # KPI
@@ -152,7 +165,7 @@ def generate_machine_summary(oee_result, downtime_data, downtime_type):
         availability = safe_number(item["availability"])
         performance = safe_number(item["performance"])
         quality = safe_number(item["quality"])
-        downtime = safe_number(downtime_data.get(name, item.get("downtime", 0)))
+        downtime = safe_number(item.get("downtime", 0))  # ค่าที่ปรับด้วย FITS แล้ว ตรงกับ A
         ####################################################
         loss_name, loss_value = get_machine_main_loss(item)
         ####################################################
@@ -162,7 +175,10 @@ def generate_machine_summary(oee_result, downtime_data, downtime_type):
         ####################################################
         # OEE
         ####################################################
-        if oee >= item["target"]["oee"]:
+        if item["oee"] is None or not item.get("data_quality_ok", True):
+            issues = ", ".join(item.get("data_quality_issues", []))
+            summary.append(f"Data incomplete ({issues}).")
+        elif oee >= item["target"]["oee"]:
             summary.append(f"OEE achieved {oee}% and met the target.")
         else:
             summary.append(f"OEE was {oee}%, below target.")
@@ -214,7 +230,7 @@ def generate_machine_summary(oee_result, downtime_data, downtime_type):
             "performance": performance,
             "quality": quality,
             "downtime": hours_to_time(downtime),
-            "downtime_detail": downtime_type[name],
+            "downtime_detail": downtime_type.get(name, {}),
             "target": item["target"],
             "OEE_status": item["oee_status"],
             "A_status": item["a_status"],
@@ -227,7 +243,10 @@ def generate_machine_summary(oee_result, downtime_data, downtime_type):
             "summary": list(dict.fromkeys(summary)),
             "focus": list(dict.fromkeys(focus)),
             "action": list(dict.fromkeys(action)),
-            "detail": item["detail"]
+            "detail": item["detail"],
+            "time_bar": item["time_bar"],
+            "data_quality_ok": item["data_quality_ok"],
+            "data_quality_issues": item["data_quality_issues"],
         }
     return machines
 
@@ -235,7 +254,14 @@ def generate_machine_summary(oee_result, downtime_data, downtime_type):
 # Daily Insight
 # ==========================================================
 def generate_daily_insight(oee_result, downtime_data, downtime_type, production_date):
-    overall = generate_overall_summary(oee_result=oee_result, downtime_data=downtime_data, production_date=production_date)
+    downtime_data = normalize_machine_keys(downtime_data)
+    downtime_type = normalize_machine_keys(downtime_type)
+    # นับ downtime เฉพาะเครื่องที่มี OEE (ลบบรรทัดนี้ถ้าอยากรวมสถานีอื่น เช่น TP01, Screwing)
+    downtime_data = {k: v for k, v in downtime_data.items() if k in oee_result}
+    # เครื่องที่ OEE คำนวณไม่ได้ (None) ไม่เอามาเฉลี่ย (ดูแก้ 3)
+    valid = {k: v for k, v in oee_result.items() if v["oee"] is not None}
+    overall = generate_overall_summary(oee_result=valid, downtime_data=downtime_data, production_date=production_date)
+    overall["excluded_machines"] = sorted(set(oee_result) - set(valid))
     machines = generate_machine_summary(oee_result=oee_result, downtime_data=downtime_data, downtime_type=downtime_type)
     dashboard = {
         "overall": overall,

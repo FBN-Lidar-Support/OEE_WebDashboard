@@ -2,6 +2,7 @@
 import configparser
 import math
 from pathlib import Path
+from platform import machine
 import re
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.ini"
 PROCESS_SETS = {
@@ -150,6 +151,7 @@ def _metrics(data, downtime, planned, targets, weighted_quality, quality_ok, tim
     denominator = _number(data["total_last_opn"], "total_last_opn")
     quality = numerator / denominator if denominator > 0 else (0.0 if numerator == 0 else None)
     issues = list(issues or [])
+    base_ok = bool(quality_ok and not issues)
     if active == 0 and ideal > 0:
         issues.append("MISSING_FITS_ACTIVE_TIME")
     if performance is None:
@@ -169,9 +171,15 @@ def _metrics(data, downtime, planned, targets, weighted_quality, quality_ok, tim
         "quality": round(quality * 100, 2) if quality is not None else None
     }
     names = {"oee": "oee", "availability": "a", "performance": "p", "quality": "q"}
+    incomplete = {
+        "oee": not quality_ok or percentages["oee"] is None,
+        "availability": not base_ok,
+        "performance": not base_ok or performance is None or performance > 1.000001,
+        "quality": not base_ok or quality is None or quality > 1.000001,
+    }
     statuses = {
         f"{short}_status": (
-            "DATA INCOMPLETE" if not quality_ok or percentages[name] is None
+            "DATA INCOMPLETE" if incomplete[name]
             else "ACHIEVED" if percentages[name] >= targets[name]
             else "BELOW TARGET"
         )
@@ -258,7 +266,7 @@ def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_dat
                 process_issues.append(f"FITS_DATA_QUALITY:{process}")
             if item.get("uncount"):
                 process_issues.append(f"UNCOUNT:{process}")
-            for field in COUNTS:
+            for field in (COUNTS if not item.get("uncount") else ()):
                 total = sum(
                     _number(values[field], f"{process}.{field}")
                     for values in item["machines"].values()
@@ -296,8 +304,15 @@ def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_dat
             issues = machine_issues[machine]
             for process in missing:
                 issues.append(f"MISSING_PROCESS:{process}")
+            raw_dt = downtime[machine]
+            active = stats["duration_hr"]
+            if raw_dt > planned_each + 1e-6:
+                issues.append("DOWNTIME_EXCEEDS_PLANNED")
+            if active > planned_each + 1e-6:
+                issues.append("ACTIVE_EXCEEDS_PLANNED")
+            stats["duration_hr"] = min(active, planned_each)
             time_data = reconcile_machine_time(
-                planned_each, downtime[machine], stats["duration_hr"]
+                planned_each, min(raw_dt, planned_each), stats["duration_hr"]
             )
             row = _metrics(
                 stats, downtime[machine], planned_each, targets,

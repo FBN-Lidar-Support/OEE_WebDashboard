@@ -45,11 +45,13 @@ def _query(session, method, opn="-", serial="-", parameters=""):
                 message = fault.findtext("faultstring", default="Unknown SOAP fault")
                 raise RuntimeError(f"FITS {method}: {message}")
             return root
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
-            if attempt == 2:
-                raise
-            print(f"FITS connection retry {attempt + 1}/3: {type(exc).__name__}")
-            time.sleep(attempt + 1)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout,
+                        requests.exceptions.HTTPError, ET.ParseError) as exc:
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if (status is not None and status < 500) or attempt == 2:
+                        raise
+                    print(f"FITS retry {attempt + 1}/3: {type(exc).__name__}")
+                    time.sleep(attempt + 1)
 # 2. GET SN + STATION + DURATION
 def _serials(session, opn, result):
     """Get unique SNs for PASS or FAIL."""
@@ -67,19 +69,20 @@ def _opn_records(session, opn):
     passed, failed = _serials(session, opn, "PASS"), _serials(session, opn, "FAIL")
     records = {}
     for sn in sorted(passed | failed):
-        root = _query(session, "fn_Query", opn, sn, "STATION_NAME,DURATION")
-        message = " ".join(
-            (node.text or "") for node in root.iter()
-            if node.tag.rsplit("}", 1)[-1] == "Message"
-        )
+        result = "RETEST" if sn in passed and sn in failed else "PASS" if sn in passed else "FAIL"
+        try:
+            root = _query(session, "fn_Query", opn, sn, "STATION_NAME,DURATION")
+        except (requests.exceptions.RequestException, ET.ParseError):
+            records[sn] = {"result": result, "station_name": None,
+                           "duration_hr": 0.0, "reason": ["QUERY_FAILED"]}
+            continue
+        message = " ".join((node.text or "") for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "Message")
         station_match = re.search(r"(?:\d+_)?STATION_NAME\s*:\s*([^,;\r\n]+)", message, re.I)
         duration_match = re.search(r"(?:\d+_)?DURATION\s*:\s*(-?\d+(?:\.\d+)?)", message, re.I)
         station = station_match.group(1).strip().upper() if station_match else None
         seconds = float(duration_match.group(1)) if duration_match else None
-        result = "RETEST" if sn in passed and sn in failed else "PASS" if sn in passed else "FAIL"
         issues = []
-        if result == "RETEST":
-            issues.append("RETEST_CONFLICT")
+
         if not station:
             issues.append("STATION_NAME")
         if seconds is None:
@@ -129,14 +132,15 @@ def get_yield_yesterday(MC_DICT, config_path=CONFIG_PATH):
                 retest_count=0,
                 data_quality_ok=True
             )
+            retest_seen = set()
             for index, opn in enumerate(opns):
                 if opn not in cache:
-                    print(f"FITS Yield: querying {opn}")
+                    # print(f"FITS Yield: querying {opn}")
                     cache[opn] = _opn_records(session, opn)
                 first, last = index == 0, index == len(opns) - 1
                 for sn, record in cache[opn].items():
                     machine = mapping.get(record["station_name"])
-                    passed = record["result"] == "PASS"
+                    passed = record["result"] in ("PASS", "RETEST")
                     # Process-level yield
                     if first:
                         data["input_first_opn"] += 1
@@ -144,7 +148,7 @@ def get_yield_yesterday(MC_DICT, config_path=CONFIG_PATH):
                         data["total_last_opn"] += 1
                         data["pass_last_opn"] += int(passed)
                     if record["result"] == "RETEST":
-                        data["retest_count"] += 1
+                        retest_seen.add(sn)
                     # Track incomplete / conflicting data
                     issues = record["reason"].copy()
                     if record["station_name"] and machine is None:
@@ -168,6 +172,7 @@ def get_yield_yesterday(MC_DICT, config_path=CONFIG_PATH):
                         values["pass_last_opn"] += int(passed)
                     values["duration_hr"] += record["duration_hr"]
                     data["duration_hr"] += record["duration_hr"]
+            data["retest_count"] = len(retest_seen)
             data["duration_hr"] = round(data["duration_hr"], 6)
             for values in data["machines"].values():
                 values["duration_hr"] = round(values["duration_hr"], 6)
