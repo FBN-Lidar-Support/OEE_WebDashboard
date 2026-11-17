@@ -544,7 +544,8 @@ button,input { font-family:inherit; }
 /* ================= DONUT ================= */
 
 .donut-layout {
-    height:100%;
+    /* auto (not 100%): 100% ignored the panel title and overflowed. */
+    height:auto;
     display:flex;
     flex-direction:column;
 }
@@ -617,7 +618,8 @@ button,input { font-family:inherit; }
 
 .donut-legend-row {
     display:grid;
-    grid-template-columns:13px 1fr auto;
+    /* minmax(0,1fr): long labels wrap instead of overflowing the panel */
+    grid-template-columns:13px minmax(0,1fr) auto;
     align-items:center;
     gap:9px;
     font-size:14px;
@@ -740,6 +742,62 @@ button,input { font-family:inherit; }
     background:var(--blue-soft);
 }
 
+.insight.issue {
+    border-left-color:var(--danger);
+    background:var(--danger-soft);
+    font-family:Consolas, "Courier New", monospace;
+    font-size:12px;
+    word-break:break-word;
+}
+
+/* ================= OVERALL SUMMARY ================= */
+
+/* Title + highlights on one line, insights below (compact). */
+.overall-panel {
+    display:grid;
+    grid-template-columns:auto minmax(0,1fr);
+    align-items:baseline;
+    column-gap:18px;
+    padding:10px 16px;
+}
+
+.overall-panel .panel-title {
+    margin:0 0 6px;
+    font-size:18px;
+}
+
+.overall-highlights {
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px 18px;
+    margin-bottom:6px;
+    font-size:13px;
+    color:var(--muted);
+}
+
+.overall-highlights strong { color:var(--text); }
+
+.overall-insights {
+    grid-column:1 / -1;
+    display:grid;
+    grid-template-columns:1.25fr .85fr 1.25fr;
+    gap:12px;
+    align-items:start;
+}
+
+.overall-insights .insight-group-title { margin-bottom:4px; }
+
+.overall-insights .insight {
+    margin-bottom:4px;
+    padding:4px 8px;
+    font-size:12px;
+}
+
+@media (max-width:800px) {
+    .overall-panel { grid-template-columns:1fr; }
+    .overall-insights { grid-template-columns:1fr; }
+}
+
 /* ================= PRODUCTION DETAIL ================= */
 
 .production-detail {
@@ -810,22 +868,89 @@ button,input { font-family:inherit; }
     .container {
         height:calc(100vh - 76px);
         display:grid;
-        grid-template-rows:auto auto minmax(0,1fr);
-        overflow:hidden;
+        /* status / overall / machine cards / machine detail */
+        grid-template-rows:auto auto auto minmax(0,1fr);
+        /* If the screen is too short, scroll instead of overlapping. */
+        overflow-x:hidden;
+        overflow-y:auto;
     }
 
     .status-line { margin-bottom:8px; }
+    #overallSection { margin-bottom:8px; }
     #machineSection { margin-bottom:8px; }
+
+    /* Fit-to-screen: overall insight scrolls inside its own box. */
+    .overall-insights {
+        max-height:96px;
+        overflow-y:auto;
+        padding-right:4px;
+    }
 
     #detailSection {
         min-height:0;
         margin-bottom:0;
         display:grid;
-        grid-template-rows:auto minmax(0,1fr) auto;
+        /* Detail panels grow to fill the screen but never shrink below
+           their content, so nothing overlaps; the container scrolls instead. */
+        grid-template-rows:auto minmax(min-content,1fr) auto;
     }
 
-    .detail-grid { min-height:0; }
+    .detail-grid { min-height:auto; }
+
+    .detail-grid .panel {
+        height:auto;
+        min-height:auto;
+    }
+
+    .production-detail {
+        grid-template-columns:repeat(5,1fr);
+        gap:8px;
+        margin-top:8px;
+    }
+
+    .production-detail .detail-item { padding:6px 10px; }
+
+    /* ---- Compact for one-screen (TV / Full HD) ---- */
+    .overall-insights { max-height:66px; }
+
+    .oee-number { margin:2px 0 6px; }
+    .metric-row { margin-top:6px; }
+
+    /* Footer lines (OEE Target / Output / Downtime / Main Loss) in 2 columns. */
+    .machine-footer {
+        margin-top:8px;
+        padding-top:6px;
+        column-count:2;
+        column-gap:18px;
+        line-height:1.45;
+    }
+
     .footer { display:none; }
+}
+
+/* Wide one-screen (>=1600px, e.g. Full HD TV):
+   donut + legend side by side, production detail in one row. */
+@media (min-width:1600px) and (min-height:700px) {
+    .donut-layout {
+        flex-direction:row;
+        align-items:center;
+        gap:16px;
+    }
+
+    .donut-wrap {
+        width:200px;
+        height:200px;
+        margin:0;
+    }
+
+    .donut-center-value { font-size:32px; }
+
+    #donutLegend {
+        flex:1 1 auto;
+        min-width:0;
+    }
+
+    .production-detail { grid-template-columns:repeat(10,minmax(0,1fr)); }
 }
 
 /* ================= RESPONSIVE ================= */
@@ -960,6 +1085,14 @@ button,input { font-family:inherit; }
         </div>
     </div>
 
+    <section id="overallSection" class="section">
+        <div class="panel overall-panel">
+            <div class="panel-title">Overall Summary</div>
+            <div id="overallHighlights" class="overall-highlights"></div>
+            <div id="overallInsight" class="overall-insights"></div>
+        </div>
+    </section>
+
     <section id="machineSection" class="section">
         <div class="machine-section-header">
             <div class="section-title">Machine Performance</div>
@@ -1028,7 +1161,10 @@ const API_TIMEOUT_MS = 10000;
 const DAY_HOURS = 24;
 
 const AUTO_CHECK_INTERVAL = 60000;
-const DAILY_SWITCH_HOUR = 19;
+// main_daily.py runs at 08:00 and writes the snapshot for YESTERDAY
+// (production day D-1 19:01 -> D 19:00). From 08:30 the page waits
+// for that snapshot and switches to it once it appears.
+const DAILY_SWITCH_HOUR = 8;
 const DAILY_SWITCH_MINUTE = 30;
 
 const NORMAL_COLOR = "#008b5a";
@@ -1394,6 +1530,16 @@ function getLocalDateKey(now = new Date()) {
     );
 }
 
+function getExpectedLatestKey(now = new Date()) {
+    // Latest complete production day = yesterday.
+    const yesterday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - 1
+    );
+    return getLocalDateKey(yesterday);
+}
+
 function hasReachedDailySwitchTime(
     now = new Date()
 ) {
@@ -1412,7 +1558,7 @@ function markDailyAutoSwitchIfCurrent(dateText) {
 
     if (
         hasReachedDailySwitchTime(now) &&
-        dateText === todayKey
+        dateText === getExpectedLatestKey(now)
     ) {
         lastDailyAutoSwitch = todayKey;
     }
@@ -1473,13 +1619,14 @@ async function checkDailyLatestSwitch() {
     }
 
     /*
-        At 19:30+, wait until today's JSON exists.
+        At 08:30+, wait until yesterday's JSON
+        (latest complete production day) exists.
 
         If it has not arrived yet,
         checkForNewData() will try again
         every 60 seconds.
     */
-    if (latestAvailableDate !== todayKey) {
+    if (latestAvailableDate !== getExpectedLatestKey(now)) {
         return;
     }
 
@@ -2056,6 +2203,10 @@ function renderDashboard(data) {
         );
     }
 
+    renderOverall(
+        overall
+    );
+
     if (selectedMachineName) {
         const index =
             machineEntries.findIndex(
@@ -2095,6 +2246,104 @@ function renderDashboard(data) {
     requestAnimationFrame(
         updateMachineNav
     );
+}
+
+/* ================= OVERALL SUMMARY ================= */
+
+/*
+    overall = smart_insight.generate_overall_summary():
+    summary / focus / action / best_machine /
+    worst_machine / excluded_machines
+*/
+function renderOverall(overall) {
+    const highlights =
+        document.getElementById(
+            "overallHighlights"
+        );
+
+    const container =
+        document.getElementById(
+            "overallInsight"
+        );
+
+    highlights.replaceChildren();
+    container.replaceChildren();
+
+    const addHighlight = (label,value) => {
+        const item =
+            document.createElement(
+                "span"
+            );
+
+        item.append(
+            `${label}: `
+        );
+
+        const strong =
+            document.createElement(
+                "strong"
+            );
+
+        strong.textContent =
+            value;
+
+        item.appendChild(
+            strong
+        );
+
+        highlights.appendChild(
+            item
+        );
+    };
+
+    addHighlight(
+        "Best Machine",
+        overall.best_machine || "-"
+    );
+
+    addHighlight(
+        "Worst Machine",
+        overall.worst_machine || "-"
+    );
+
+    if (
+        Array.isArray(overall.excluded_machines) &&
+        overall.excluded_machines.length
+    ) {
+        addHighlight(
+            "Excluded (data incomplete)",
+            overall.excluded_machines.join(", ")
+        );
+    }
+
+    addInsightGroup(
+        container,
+        "Summary",
+        overall.summary,
+        "summary"
+    );
+
+    addInsightGroup(
+        container,
+        "Focus",
+        overall.focus,
+        "focus"
+    );
+
+    addInsightGroup(
+        container,
+        "Action",
+        overall.action,
+        "action"
+    );
+
+    if (!container.children.length) {
+        container.appendChild(
+            createEmptyMessage(
+                "No overall insight available."
+            )
+        );
+    }
 }
 
 /* ================= MACHINE CARDS ================= */
@@ -2543,7 +2792,222 @@ function renderMachineDetail(
 
 /* ================= DONUT ================= */
 
+const UNKNOWN_COLOR = "#9ca3af";
+const BREAK_COLOR = "#e5e7eb";
+const DOWNTIME_TYPE_COLORS = [
+    "#dc2626",
+    "#f97316",
+    "#b91c1c",
+    "#f59e0b",
+    "#ea580c",
+    "#991b1b"
+];
+
+/*
+    Uses backend time_bar (oee_cal.build_time_bar_data):
+    planned time (21 hr) = FITS Active + Unknown + Downtime by type.
+    The rest of the 24 hr is break / not planned time.
+    Falls back to the legacy view for snapshots without time_bar.
+*/
 function render24HourDonut(
+    name,
+    machine
+) {
+    const bar =
+        machine.time_bar;
+
+    const planned =
+        isObject(bar)
+            ? toSafeNumber(bar.max_hours)
+            : null;
+
+    if (
+        !isObject(bar) ||
+        !Array.isArray(bar.segments) ||
+        planned === null ||
+        planned <= 0
+    ) {
+        renderLegacy24HourDonut(
+            name,
+            machine
+        );
+
+        return;
+    }
+
+    const donutContainer =
+        document.getElementById(
+            "donutContainer"
+        );
+
+    const legendContainer =
+        document.getElementById(
+            "donutLegend"
+        );
+
+    donutContainer.replaceChildren();
+    legendContainer.replaceChildren();
+
+    const parts = [];
+    let downtimeIndex = 0;
+
+    bar.segments.forEach(segment => {
+        if (!isObject(segment)) return;
+
+        const hours =
+            toSafeNumber(segment.hours);
+
+        if (hours === null || hours <= 0) return;
+
+        let color = NORMAL_COLOR;
+        let label = String(segment.label ?? "");
+
+        if (segment.kind === "downtime") {
+            color =
+                DOWNTIME_TYPE_COLORS[
+                    downtimeIndex %
+                    DOWNTIME_TYPE_COLORS.length
+                ];
+            downtimeIndex += 1;
+
+            if (segment.estimated) {
+                label += " (est.)";
+            }
+
+        } else if (segment.kind === "unknown") {
+            color = UNKNOWN_COLOR;
+        }
+
+        parts.push({ color, label, hours });
+    });
+
+    const breakHours =
+        Math.max(
+            DAY_HOURS - planned,
+            0
+        );
+
+    if (breakHours > 0) {
+        parts.push({
+            color: BREAK_COLOR,
+            label: "Break / Not Planned",
+            hours: breakHours
+        });
+    }
+
+    const total =
+        parts.reduce(
+            (sum,part) => sum + part.hours,
+            0
+        );
+
+    if (total <= 0) {
+        donutContainer.appendChild(
+            createWarning(
+                "No time data received from backend."
+            )
+        );
+
+        return;
+    }
+
+    let offset = 0;
+    let segments = "";
+
+    parts.forEach(part => {
+        const percent =
+            (part.hours / total) * 100;
+
+        segments += `
+            <circle
+                class="donut-segment"
+                cx="100"
+                cy="100"
+                r="70"
+                pathLength="100"
+                stroke="${part.color}"
+                stroke-dasharray="${percent} ${100 - percent}"
+                stroke-dashoffset="${-offset}">
+                <title>${escapeHTML(part.label)}: ${part.hours.toFixed(2)} hr</title>
+            </circle>
+        `;
+
+        offset += percent;
+    });
+
+    const downtimeHours =
+        toSafeNumber(bar.downtime) ?? 0;
+
+    const donut =
+        document.createElement(
+            "div"
+        );
+
+    donut.className =
+        "donut-wrap";
+
+    donut.innerHTML = `
+        <svg
+            class="donut-svg"
+            viewBox="0 0 200 200"
+            role="img"
+            aria-label="24 hour machine time overview">
+
+            <circle
+                class="donut-background"
+                cx="100"
+                cy="100"
+                r="70">
+            </circle>
+
+            ${segments}
+        </svg>
+
+        <div class="donut-center">
+            <div class="donut-center-machine">
+                ${escapeHTML(name)}
+            </div>
+
+            <div class="donut-center-value">
+                ${downtimeHours.toFixed(1)} hr
+            </div>
+
+            <div class="donut-center-label">
+                Downtime
+            </div>
+        </div>
+    `;
+
+    donutContainer.appendChild(
+        donut
+    );
+
+    const legend =
+        document.createElement(
+            "div"
+        );
+
+    legend.className =
+        "donut-legend";
+
+    parts.forEach(part => {
+        legend.appendChild(
+            createDonutLegendRow(
+                part.color,
+                part.label,
+                `${part.hours.toFixed(2)} hr (${(
+                    (part.hours / total) * 100
+                ).toFixed(1)}%)`
+            )
+        );
+    });
+
+    legendContainer.appendChild(
+        legend
+    );
+}
+
+function renderLegacy24HourDonut(
     name,
     machine
 ) {
@@ -2978,6 +3442,17 @@ function renderInsights(machine) {
         "action"
     );
 
+    /*
+        Why the machine is DATA INCOMPLETE
+        (data_quality_issues from oee_cal.py).
+    */
+    addInsightGroup(
+        container,
+        "Data Quality",
+        machine.data_quality_issues,
+        "issue"
+    );
+
     if (
         !container.children.length
     ) {
@@ -3051,6 +3526,15 @@ function addInsightGroup(
 
 /* ================= PRODUCTION DETAIL ================= */
 
+function formatHours(value) {
+    const number =
+        toSafeNumber(value);
+
+    return number === null
+        ? null
+        : `${number.toFixed(2)} hr`;
+}
+
 function renderProductionDetail(machine) {
     const container =
         document.getElementById(
@@ -3080,6 +3564,32 @@ function renderProductionDetail(machine) {
         [
             "Ideal Speed",
             detail.ideal_speed
+        ],
+        [
+            "Planned Time",
+            formatHours(detail.planned_time)
+        ],
+        [
+            "Operating Time",
+            formatHours(detail.operating_time)
+        ],
+        [
+            "FITS Active Time",
+            formatHours(detail.active_time)
+        ],
+        [
+            "Unknown Time",
+            formatHours(detail.unknown_time)
+        ],
+        [
+            "Ideal Time",
+            formatHours(detail.ideal_time)
+        ],
+        [
+            "Processes",
+            Array.isArray(detail.processes) && detail.processes.length
+                ? detail.processes.join(", ")
+                : null
         ]
     ];
 
@@ -3387,6 +3897,15 @@ function setText(
 }
 
 function toSafeNumber(value) {
+    // Number(null) and Number("") are 0; treat them as missing data.
+    if (
+        value === null ||
+        value === undefined ||
+        (typeof value === "string" && !value.trim())
+    ) {
+        return null;
+    }
+
     const number =
         Number(value);
 
@@ -3730,9 +4249,9 @@ document.addEventListener(
         It only updates the Calendar
         during normal operation.
 
-        At 19:30+ it automatically
-        switches to today's snapshot
-        once today's JSON is available.
+        At 08:30+ it automatically
+        switches to yesterday's snapshot
+        (latest production day) once it is available.
     */
     setInterval(
         checkForNewData,

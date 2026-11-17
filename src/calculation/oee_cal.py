@@ -46,8 +46,16 @@ def _empty():
         "duration_hr": 0.0,
         "ideal_time": 0.0,
         "good_ideal_time": 0.0,
-        "steps": {}
+        "steps": {},
+        "speeds": {}
     }
+def format_ideal_speed(speeds):
+    """{"AA_FAS_SAS": 2.43, "AA_TP": 5.41} -> "AA_FAS_SAS 2.43, AA_TP 5.41 unit/hr"."""
+    if not speeds:
+        return None
+    if len(speeds) == 1:
+        return f"{next(iter(speeds.values())):g} unit/hr"
+    return ", ".join(f"{process} {speed:g}" for process, speed in speeds.items()) + " unit/hr"
 def hours_to_time_format(hours):
     minutes = round(hours * 60)
     return f"{minutes // 60}:{minutes % 60:02d}"
@@ -151,7 +159,6 @@ def _metrics(data, downtime, planned, targets, weighted_quality, quality_ok, tim
     denominator = _number(data["total_last_opn"], "total_last_opn")
     quality = numerator / denominator if denominator > 0 else (0.0 if numerator == 0 else None)
     issues = list(issues or [])
-    base_ok = bool(quality_ok and not issues)
     if active == 0 and ideal > 0:
         issues.append("MISSING_FITS_ACTIVE_TIME")
     if performance is None:
@@ -163,7 +170,11 @@ def _metrics(data, downtime, planned, targets, weighted_quality, quality_ok, tim
     elif quality > 1.000001:
         issues.append("QUALITY_OVER_100")
     quality_ok = bool(quality_ok and not issues)
-    oee = availability * performance * quality if performance is not None and quality is not None else None
+    # Checked AFTER all issues above are collected: if the machine's data is
+    # incomplete for any reason, A/P/Q must not show ACHIEVED / BELOW TARGET
+    # either (previously only OEE did, so e.g. Q showed ACHIEVED in green).
+    base_ok = quality_ok
+    oee =availability * performance * quality if performance is not None and quality is not None else None
     percentages = {
         "oee": round(oee * 100, 2) if oee is not None else None,
         "availability": round(availability * 100, 2),
@@ -212,8 +223,17 @@ def _metrics(data, downtime, planned, targets, weighted_quality, quality_ok, tim
         "data_quality_issues": issues,
         "detail": detail
     }
-def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_data=None):
-    """Return a flat dictionary of OEE results keyed by physical machine."""
+def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_data=None,
+                  downtime_issues=None):
+    """Return a flat dictionary of OEE results keyed by physical machine.
+
+    ``downtime_issues``: optional {machine: [message, ...]} of downtime rows the
+    ETL skipped as invalid; those machines are marked DATA INCOMPLETE.
+    """
+    skipped_rows = {}
+    for name, messages in (downtime_issues or {}).items():
+        if messages:
+            skipped_rows.setdefault(_machine_name(name), []).extend(messages)
     config = configparser.ConfigParser(interpolation=None)
     if not config.read(CONFIG_PATH, encoding="utf-8-sig"):
         raise FileNotFoundError(f"Cannot read config: {CONFIG_PATH}")
@@ -293,18 +313,22 @@ def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_dat
                 stats["ideal_time"] += produced / speed
                 stats["good_ideal_time"] += _number(values["pass_last_opn"], f"{machine}.pass") / speed
                 stats["steps"][process] = dict(values)
+                stats["speeds"][process] = speed
         if not machines:
             raise ValueError(f"No machines in yield data for {set_name}")
-        absent_downtime = sorted(set(machines) - set(downtime))
-        if absent_downtime:
-            raise ValueError(f"Missing downtime for {set_name}: {absent_downtime}")
         for machine, stats in sorted(machines.items()):
             if machine in result:
                 raise ValueError(f"Machine appears in multiple process sets: {machine}")
             issues = machine_issues[machine]
             for process in missing:
                 issues.append(f"MISSING_PROCESS:{process}")
-            raw_dt = downtime[machine]
+            if machine not in downtime:
+                # No downtime CSV for this machine: assume 0 hr but flag it,
+                # instead of failing the whole daily report.
+                issues.append("MISSING_DOWNTIME_FILE")
+            if machine in skipped_rows:
+                issues.append(f"DOWNTIME_ROWS_SKIPPED:{len(skipped_rows[machine])}")
+            raw_dt = downtime.get(machine, 0.0)
             active = stats["duration_hr"]
             if raw_dt > planned_each + 1e-6:
                 issues.append("DOWNTIME_EXCEEDS_PLANNED")
@@ -315,14 +339,17 @@ def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_dat
                 planned_each, min(raw_dt, planned_each), stats["duration_hr"]
             )
             row = _metrics(
-                stats, downtime[machine], planned_each, targets,
+                stats, raw_dt, planned_each, targets,
                 False, not issues, time_data, issues
             )
             row["detail"]["steps"] = stats["steps"]
             row["detail"]["processes"] = sorted(stats["steps"])
+            row["detail"]["ideal_speed"] = format_ideal_speed(stats["speeds"])
             row["time_bar"] = build_time_bar_data(
                 time_data, stats["ideal_time"], downtime_types.get(machine)
             )
             row["missing_processes"] = missing
+            # Exact rows to fix in the downtime CSV (shown with the issue list).
+            row["downtime_skipped_rows"] = skipped_rows.get(machine, [])
             result[machine] = row
     return result

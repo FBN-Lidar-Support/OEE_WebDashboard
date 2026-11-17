@@ -4,13 +4,44 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
+from src.etl.query_downtime import get_break_intervals
 CSV_COLUMNS = [
     "Machine", "Type Downtime", "Detail", "EN Check In",
     "Timestamp Check In", "EN Check Out", "Timestamp Check Out",
     "Duration (hr)", "Status"
 ]
 STORE_TIME_FORMAT = "%d/%m/%Y %H:%M"
+# Production day boundary: 19:00 (night shift D-1 19:01 -> D 07:00, day shift D 07:01 -> D 19:00).
+PRODUCTION_DAY_OFFSET = timedelta(hours=19)
 API_TIME_FORMAT = "%Y-%m-%dT%H:%M"
+def _merge_intervals(intervals):
+    merged = []
+    for interval_start, interval_end in sorted(intervals, key=lambda x: x[0]):
+        if merged and interval_start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], interval_end))
+        else:
+            merged.append((interval_start, interval_end))
+    return merged
+def _hours_by_production_day(interval_start, interval_end):
+    """Split one interval by production day (19:00 -> 19:00) and remove break
+    times, using the same breaks as the OEE calculation (query_downtime)."""
+    result = {}
+    cursor = interval_start
+    while cursor < interval_end:
+        # 19:00 on D-1 .. 18:59 on D belongs to production day D.
+        production_day = (cursor - PRODUCTION_DAY_OFFSET + timedelta(days=1)).date()
+        next_boundary = datetime.combine(production_day, datetime.min.time()) + PRODUCTION_DAY_OFFSET
+        segment_end = min(interval_end, next_boundary)
+        seconds = (segment_end - cursor).total_seconds()
+        for break_start, break_end in get_break_intervals(production_day):
+            overlap_start = max(cursor, break_start.to_pydatetime())
+            overlap_end = min(segment_end, break_end.to_pydatetime())
+            if overlap_start < overlap_end:
+                seconds -= (overlap_end - overlap_start).total_seconds()
+        key = production_day.isoformat()
+        result[key] = result.get(key, 0.0) + max(seconds, 0.0) / 3600
+        cursor = segment_end
+    return result
 class DowntimeError(Exception):
     pass
 class ValidationError(DowntimeError):
@@ -282,14 +313,16 @@ class DowntimeStore:
             raise ValidationError("To Date cannot be before From Date.")
         if (last - first).days > 366:
             raise ValidationError("Date range cannot exceed 367 days.")
-        start = first + timedelta(hours=7)
-        end = last + timedelta(days=1, hours=7)
+        # Production day D = D-1 19:00 -> D 19:00 (night shift first),
+        # same window as src/etl/query_downtime.get_production_window().
+        start = first - timedelta(days=1) + PRODUCTION_DAY_OFFSET
+        end = last + PRODUCTION_DAY_OFFSET
         now = datetime.now()
         with self._machine_lock(machine):
             df = self._read_machine(machine).copy()
         records = []
         intervals = []
-        type_hours, type_events = {}, {}
+        type_hours, type_events, type_intervals = {}, {}, {}
         daily = {
             (first + timedelta(days=i)).date().isoformat(): 0.0
             for i in range((last - first).days + 1)
@@ -327,33 +360,23 @@ class DowntimeStore:
                 continue
 
             downtime_type = record["Type Downtime"].strip() or "(Unspecified)"
-            hours = (clip_end - clip_start).total_seconds() / 3600
-            
             intervals.append((clip_start, clip_end))
-            type_hours[downtime_type] = type_hours.get(downtime_type, 0.0) + hours
+            type_intervals.setdefault(downtime_type, []).append((clip_start, clip_end))
             type_events[downtime_type] = type_events.get(downtime_type, 0) + 1
-        
-        # Total Downtime: merge overlapping intervals, matching OEE.
-        intervals.sort(key=lambda x: x[0])
-        merged = []
-        for interval_start, interval_end in intervals:
-            if merged and interval_start <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], interval_end))
-            else:
-                merged.append((interval_start, interval_end))
-        total_seconds = sum((b - a).total_seconds() for a, b in merged)
-        total_hours = total_seconds / 3600
-        # Daily Trend: split unique downtime by production day.
-        for interval_start, interval_end in merged:
-            cursor = interval_start
-            while cursor < interval_end:
-                production_day = (cursor - timedelta(hours=7)).date()
-                next_boundary = datetime.combine(
-                    production_day + timedelta(days=1), datetime.min.time()
-                ) + timedelta(hours=7)
-                segment_end = min(interval_end, next_boundary)
-                daily[production_day.isoformat()] += (segment_end - cursor).total_seconds() / 3600
-                cursor = segment_end
+
+        # Same rules as OEE (query_downtime): merge overlapping intervals,
+        # then remove break times. Per type: overlaps within the type merged.
+        for downtime_type, items in type_intervals.items():
+            type_hours[downtime_type] = sum(
+                sum(_hours_by_production_day(a, b).values())
+                for a, b in _merge_intervals(items)
+            )
+        # Total + Daily Trend: unique downtime split by production day.
+        for interval_start, interval_end in _merge_intervals(intervals):
+            for day, hours in _hours_by_production_day(interval_start, interval_end).items():
+                if day in daily:
+                    daily[day] += hours
+        total_hours = sum(daily.values())
         ranking = sorted(type_hours, key=lambda t: (-type_hours[t], t.casefold()))
         ranking_data = [
             {

@@ -9,7 +9,10 @@ from src.storage.snapshot import save_daily_snapshot
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config" / "config.ini"
 config = configparser.ConfigParser()
-config.read(CONFIG_PATH)
+# Explicit UTF-8: config.ini has Thai comments; the Windows default (cp874 on a
+# Thai-locale server) cannot decode them.
+if not config.read(CONFIG_PATH, encoding="utf-8-sig"):
+    raise FileNotFoundError(f"Cannot read config: {CONFIG_PATH}")
 
 def main():
     Machine_OPN = {
@@ -18,12 +21,20 @@ def main():
         "AA_TP"         : config["AA_TP"].get("OPN_LIST", {}).split(","),
         "IEOL_BRINGUP"  : config["IEOL_BRINGUP"].get("OPN_LIST", {}).split(","),
         "IEOL_S"        : config["IEOL_SHORT"].get("OPN_LIST", {}).split(","),
-        "IEOL_L"        : config["IEOL_LONG"].get("OPN_LIST", {}).split(","), 
+        "IEOL_L"        : config["IEOL_LONG"].get("OPN_LIST", {}).split(","),
+        # Same machines as IEOL_BRINGUP (different program); combined in oee_cal.
+        "IEOL_CRS"      : config["IEOL_CRS"].get("OPN_LIST", {}).split(","),
     }
 
     # 1. ดึงข้อมูล Downtime
     print("=" * 20, " downtime_data ", "=" * 20)
-    downtime_data, downtime_type, downtime_df, production_date = get_downtime_yesterday()
+    # Bad downtime rows are skipped (not fatal) and listed here per machine;
+    # those machines are marked DATA INCOMPLETE in the OEE result.
+    downtime_issues = {}
+    downtime_data, downtime_type, downtime_df, production_date = get_downtime_yesterday(downtime_issues)
+    for machine, messages in downtime_issues.items():
+        for message in messages:
+            print(f"WARNING skipped downtime row [{machine}]: {message}")
     print("Production Date:\t", production_date)
     # for machine, hour in downtime_data.items():
     #     print(f"{machine:6s} : {hour:.2f} hr")
@@ -48,7 +59,12 @@ def main():
 
     # 3. คำนวณ OEE
     print("=" * 20, " oee_result ", "=" * 20)
-    oee_data = calculate_oee(downtime_data=downtime_data, yield_data=yield_data, downtime_type_data=downtime_type)
+    oee_data = calculate_oee(
+        downtime_data=downtime_data,
+        yield_data=yield_data,
+        downtime_type_data=downtime_type,
+        downtime_issues=downtime_issues
+    )
     for machine, row in oee_data.items():
         detail = row["detail"]
         bar = row["time_bar"]

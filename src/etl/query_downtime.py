@@ -1,12 +1,18 @@
 from __future__ import annotations
 from datetime import date, datetime, time as dt_time, timedelta
+import configparser
 from pathlib import Path
 import pandas as pd
 
-DOWNTIME_DIR = Path(r"\\FBN-FS01\GLOBAL\_A\AtthaphanP\INNOVIZ\OEE\Downtime_Entry\Downtime_Record")
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.ini"
+# Production day D (night shift first, then day shift):
+#   Night shift : D-1 19:01 -> D 07:00
+#   Day shift   : D   07:01 -> D 19:00
+# Example: 2026-11-16 = 2026-11-15 19:01 -> 2026-11-16 19:00
+PRODUCTION_NIGHT_START = dt_time(19, 0)   # starts on the previous calendar day
 PRODUCTION_DAY_START = dt_time(7, 0)
-DAY_SHIFT_START = dt_time(7, 0)
-NIGHT_SHIFT_START = dt_time(19, 0)
+DAY_SHIFT_START = PRODUCTION_DAY_START
+NIGHT_SHIFT_START = PRODUCTION_NIGHT_START
 REQUIRED_COLUMNS = [
     "Type Downtime", "Detail", "EN Check In", "Timestamp Check In",
     "EN Check Out", "Timestamp Check Out", "Status"
@@ -15,11 +21,21 @@ REQUIRED_COLUMNS = [
 # ============================================================
 # 1. READ DOWNTIME CSV
 # ============================================================
+def get_downtime_dir(config_path: Path = CONFIG_PATH) -> Path:
+    """[DOWNTIME] record_path in config.ini (same folder the Downtime Entry page writes to)."""
+    config = configparser.ConfigParser(interpolation=None)
+    if not config.read(config_path, encoding="utf-8-sig"):
+        raise FileNotFoundError(f"Cannot read config: {config_path}")
+    record_path = config.get("DOWNTIME", "record_path", fallback="").strip()
+    if not record_path:
+        raise ValueError("[DOWNTIME] record_path is not configured")
+    return Path(record_path)
 def get_machine_files() -> dict[str, Path]:
-    if not DOWNTIME_DIR.is_dir():
-        raise FileNotFoundError(f"Directory not found: {DOWNTIME_DIR}")
+    downtime_dir = get_downtime_dir()
+    if not downtime_dir.is_dir():
+        raise FileNotFoundError(f"Directory not found: {downtime_dir}")
     machine_files = {}
-    for line_dir in sorted(DOWNTIME_DIR.iterdir()):
+    for line_dir in sorted(downtime_dir.iterdir()):
         if not line_dir.is_dir() or line_dir.name.startswith("."):
             continue
         for file in sorted(line_dir.glob("*.csv")):
@@ -50,10 +66,19 @@ def _clean_dataframe(df: pd.DataFrame, file_path: Path, machine_name: str) -> pd
         df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
     df["Machine Name"] = machine_name
     df["Source File"] = file_path.name
-    if df["Timestamp Check In"].isna().any():
-        raise ValueError(f"{file_path.name}: missing/invalid Timestamp Check In")
+    # Row number as seen in Excel (header = row 1), for error messages.
+    df["Source Row"] = df.index + 2
     return df.sort_values("Timestamp Check In").reset_index(drop=True)
-def read_all_downtime() -> pd.DataFrame:
+def _add_issue(issues: dict | None, machine: str, message: str) -> None:
+    if issues is not None:
+        issues.setdefault(machine, []).append(message)
+def read_all_downtime(issues: dict | None = None) -> pd.DataFrame:
+    """Read every machine CSV.
+
+    A file that cannot be read at all (wrong columns / encoding) still raises.
+    A single bad row is skipped and recorded in ``issues`` so one typo does
+    not stop the daily report for every machine.
+    """
     frames = []
     for machine_name, file_path in get_machine_files().items():
         try:
@@ -61,6 +86,20 @@ def read_all_downtime() -> pd.DataFrame:
             machine_df = _clean_dataframe(raw_df, file_path, machine_name)
         except Exception as exc:
             raise RuntimeError(f"Cannot load downtime file {file_path.name}: {exc}") from exc
+        # Rows that are completely empty (e.g. ",,,,," left by Excel) are ignored silently.
+        empty_row = (
+            machine_df["Timestamp Check In"].isna()
+            & machine_df["Timestamp Check Out"].isna()
+            & (machine_df["Type Downtime"] == "")
+            & (machine_df["Detail"] == "")
+            & (machine_df["Status"] == "")
+        )
+        machine_df = machine_df[~empty_row]
+        bad_checkin = machine_df["Timestamp Check In"].isna()
+        for row_no in machine_df.loc[bad_checkin, "Source Row"]:
+            _add_issue(issues, machine_name,
+                       f"{file_path.name} row {row_no}: missing/invalid Timestamp Check In")
+        machine_df = machine_df[~bad_checkin]
         if not machine_df.empty:
             frames.append(machine_df)
     if not frames:
@@ -72,20 +111,24 @@ def read_all_downtime() -> pd.DataFrame:
 # 2. PRODUCTION WINDOW & BREAK TIME
 # ============================================================
 def get_production_window(production_date: date) -> tuple[pd.Timestamp, pd.Timestamp]:
-    start = pd.Timestamp(datetime.combine(production_date, PRODUCTION_DAY_START))
-    return start, start + timedelta(days=1)
+    """D-1 19:00 -> D 19:00 (night shift first, then day shift)."""
+    start = pd.Timestamp(datetime.combine(
+        production_date - timedelta(days=1), PRODUCTION_NIGHT_START
+    ))
+    end = pd.Timestamp(datetime.combine(production_date, PRODUCTION_NIGHT_START))
+    return start, end
 def get_break_intervals(production_date: date) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    # All breaks fall on calendar day D (total 3 hr -> PLANNED_TIME = 21).
     day = pd.Timestamp(production_date).normalize()
-    next_day = day + pd.Timedelta(days=1)
     return [
-        # Day Shift
+        # Night Shift (D-1 19:01 -> D 07:00)
+        (day, day + pd.Timedelta(hours=1)),
+        (day + pd.Timedelta(hours=4, minutes=30),
+         day + pd.Timedelta(hours=5)),
+        # Day Shift (D 07:01 -> D 19:00)
         (day + pd.Timedelta(hours=11), day + pd.Timedelta(hours=12)),
         (day + pd.Timedelta(hours=16, minutes=30),
-         day + pd.Timedelta(hours=17)),
-        # Night Shift (next calendar day)
-        (next_day, next_day + pd.Timedelta(hours=1)),
-        (next_day + pd.Timedelta(hours=4, minutes=30),
-         next_day + pd.Timedelta(hours=5))
+         day + pd.Timedelta(hours=17))
     ]
 def get_shift(timestamp: pd.Timestamp) -> str:
     current_time = timestamp.time()
@@ -127,26 +170,43 @@ def _effective_hours(intervals, production_date: date) -> float:
 # ============================================================
 # 5. GET DOWNTIME EVENTS BY PRODUCTION DATE
 # ============================================================
-def get_downtime_events_by_date(production_date: date) -> pd.DataFrame:
-    df = read_all_downtime()
+def get_downtime_events_by_date(production_date: date, issues: dict | None = None) -> pd.DataFrame:
+    """``issues`` (optional dict) is filled with {machine: [message, ...]}
+    for rows that were skipped because they are invalid."""
+    df = read_all_downtime(issues)
     if df.empty:
         return pd.DataFrame()
     window_start, window_end = get_production_window(production_date)
     now = pd.Timestamp.now()
+    # A broken row affects this production day only if it was checked in
+    # during (or the day before) the window; older broken rows are just logged.
+    relevant_from = window_start - timedelta(days=1)
     events = []
     for _, row in df.iterrows():
         event_start = row["Timestamp Check In"]
         event_end = row["Timestamp Check Out"]
         status = row["Status"]
+        if event_start >= window_end:
+            continue
+        where = f"{row['Source File']} row {row['Source Row']}"
+        relevant = event_start >= relevant_from
         # OPENED: use current time, capped at production day end
         if pd.isna(event_end):
             if status != "OPENED":
-                raise ValueError(
-                    f"{row['Source File']}: missing checkout for status {status}"
-                )
+                message = f"{where}: missing/invalid Timestamp Check Out (status {status or 'blank'})"
+                if relevant:
+                    _add_issue(issues, row["Machine Name"], message)
+                else:
+                    print(f"WARNING skipped old downtime row - {message}")
+                continue
             event_end = min(now, window_end)
         if event_end < event_start:
-            raise ValueError(f"{row['Source File']}: checkout before check-in")
+            message = f"{where}: Timestamp Check Out is before Check In"
+            if relevant:
+                _add_issue(issues, row["Machine Name"], message)
+            else:
+                print(f"WARNING skipped old downtime row - {message}")
+            continue
         # Clip to production window
         start_clip = max(event_start, window_start)
         end_clip = min(event_end, window_end)
@@ -225,9 +285,10 @@ def summarize_downtime_type(
 # ============================================================
 # 8. MAIN DOWNTIME FUNCTION
 # ============================================================
-def get_downtime_by_date(production_date: date):
+def get_downtime_by_date(production_date: date, issues: dict | None = None):
+    """``issues`` (optional dict) is filled with skipped-row messages per machine."""
     machine_files = get_machine_files()
-    downtime_df = get_downtime_events_by_date(production_date)
+    downtime_df = get_downtime_events_by_date(production_date, issues)
     downtime_data = {}
     downtime_type = {}
     for machine_name in machine_files:
@@ -245,9 +306,9 @@ def get_downtime_by_date(production_date: date):
             downtime_df, machine_name
         )
     return downtime_data, downtime_type, downtime_df
-def get_downtime_yesterday():
+def get_downtime_yesterday(issues: dict | None = None):
     production_date = date.today() - timedelta(days=1)
     downtime_data, downtime_type, downtime_df = get_downtime_by_date(
-        production_date
+        production_date, issues
     )
     return downtime_data, downtime_type, downtime_df, production_date

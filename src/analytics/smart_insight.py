@@ -91,7 +91,9 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
     # Summary
     ####################################################
     summary = []
-    if overall_oee >= overall_target:
+    if not oee_result:
+        summary.append("Overall OEE could not be calculated (no machine with complete data).")
+    elif overall_oee >= overall_target:
         summary.append(f"Overall OEE achieved {overall_oee}% (Target {overall_target}%).")
     else:
         summary.append(f"Overall OEE was {overall_oee}% ({round(overall_target-overall_oee,2)}% below target).")
@@ -142,12 +144,26 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
 # ==========================================================
 # Machine Main Loss
 # ==========================================================
+def optional_number(value):
+    """Return float, or None when the KPI could not be calculated."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 def get_machine_main_loss(machine):
     losses = {
-        "Availability": max(100 - safe_number(machine["availability"]), 0),
-        "Performance": max(100 - safe_number(machine["performance"]), 0),
-        "Quality": max(100 - safe_number(machine["quality"]), 0)
+        name: max(100 - value, 0)
+        for name, value in (
+            ("Availability", optional_number(machine["availability"])),
+            ("Performance", optional_number(machine["performance"])),
+            ("Quality", optional_number(machine["quality"]))
+        )
+        if value is not None
     }
+    if not losses:
+        return (None, None)
     category = max(losses, key=losses.get)
     return (category, round(losses[category], 2))
 # ==========================================================
@@ -155,16 +171,16 @@ def get_machine_main_loss(machine):
 # ==========================================================
 def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dict):
     machines = {}
-    print("oee_result:\t", oee_result.keys())
-    print("downtime_type:\t", downtime_type.keys())
     for name, item in oee_result.items():
         ####################################################
         # KPI
         ####################################################
-        oee = safe_number(item["oee"])
-        availability = safe_number(item["availability"])
-        performance = safe_number(item["performance"])
-        quality = safe_number(item["quality"])
+        # Keep None (not 0) for KPIs that cannot be calculated,
+        # so the dashboard shows "-" instead of a fake 0%.
+        oee = optional_number(item["oee"])
+        availability = optional_number(item["availability"])
+        performance = optional_number(item["performance"])
+        quality = optional_number(item["quality"])
         downtime = safe_number(item.get("downtime", 0))  # ค่าที่ปรับด้วย FITS แล้ว ตรงกับ A
         ####################################################
         loss_name, loss_value = get_machine_main_loss(item)
@@ -175,7 +191,7 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         ####################################################
         # OEE
         ####################################################
-        if item["oee"] is None or not item.get("data_quality_ok", True):
+        if oee is None or not item.get("data_quality_ok", True):
             issues = ", ".join(item.get("data_quality_issues", []))
             summary.append(f"Data incomplete ({issues}).")
         elif oee >= item["target"]["oee"]:
@@ -185,21 +201,25 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         ####################################################
         # Availability
         ####################################################
-        if availability < item["target"]["availability"]:
+        if availability is not None and availability < item["target"]["availability"]:
             summary.append(f"Availability dropped to {availability}%.")
             focus.append("Reduce downtime")
             action.append("Review downtime records.")
         ####################################################
         # Performance
         ####################################################
-        if performance < item["target"]["performance"]:
+        if performance is None:
+            summary.append("Performance could not be calculated.")
+        elif performance < item["target"]["performance"]:
             summary.append(f"Performance was {performance}%.")
             focus.append("Improve cycle time")
             action.append("Review machine speed and operator loading.")
         ####################################################
         # Quality
         ####################################################
-        if quality < item["target"]["quality"]:
+        if quality is None:
+            summary.append("Quality could not be calculated.")
+        elif quality < item["target"]["quality"]:
             summary.append(f"Quality was {quality}%.")
             focus.append("Reduce defects")
             action.append("Investigate NG trend.")
@@ -213,7 +233,8 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         ####################################################
         # Main Loss
         ####################################################
-        summary.append(f"Main loss : {loss_name} ({loss_value}%).")
+        if loss_name:
+            summary.append(f"Main loss : {loss_name} ({loss_value}%).")
         ####################################################
         # Recommendation
         ####################################################
@@ -221,7 +242,7 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
             action.append("Coordinate with Maintenance to improve equipment uptime.")
         elif loss_name == "Performance":
             action.append("Optimize machine cycle time and eliminate minor stops.")
-        else:
+        elif loss_name == "Quality":
             action.append("Perform root cause analysis for defects.")
         ####################################################
         machines[name] = {
@@ -246,7 +267,8 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
             "detail": item["detail"],
             "time_bar": item["time_bar"],
             "data_quality_ok": item["data_quality_ok"],
-            "data_quality_issues": item["data_quality_issues"],
+            # Issue codes + exact downtime CSV rows that were skipped (file/row to fix).
+            "data_quality_issues": item["data_quality_issues"] + item.get("downtime_skipped_rows", []),
         }
     return machines
 
