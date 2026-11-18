@@ -868,6 +868,7 @@ button,input { font-family:inherit; }
     .container {
         height:calc(100vh - 76px);
         display:grid;
+        grid-template-columns: minmax(0,1fr);
         /* status / overall / machine cards / machine detail */
         grid-template-rows:auto auto auto minmax(0,1fr);
         /* If the screen is too short, scroll instead of overlapping. */
@@ -877,7 +878,8 @@ button,input { font-family:inherit; }
 
     .status-line { margin-bottom:8px; }
     #overallSection { margin-bottom:8px; }
-    #machineSection { margin-bottom:8px; }
+    #machineSection { margin-bottom:8px; min-width: 0;}
+    #detailSection { min-width: 0;}
 
     /* Fit-to-screen: overall insight scrolls inside its own box. */
     .overall-insights {
