@@ -17,8 +17,13 @@ if not config.read(CONFIG_PATH, encoding="utf-8-sig"):
 def main():
     Machine_OPN = {
         "AB2B"          : config["AB2B"].get("OPN_LIST", {}).split(","),
+        # Same machines as AB2B (different program); combined in oee_cal.
+        "AB2B_POST_TEST": config["AB2B_POST_TEST"].get("OPN_LIST", {}).split(","),
         "AA_FAS_SAS"    : config["AA_FAS_SAS"].get("OPN_LIST", {}).split(","),
+        # Same machines as AA_FAS_SAS (different program); combined in oee_cal.
+        "AA_FAS_SAS_POST_OVEN": config["AA_FAS_SAS_POST_OVEN"].get("OPN_LIST", {}).split(","),
         "AA_TP"         : config["AA_TP"].get("OPN_LIST", {}).split(","),
+        "AA_TP_POST_OVEN": config["AA_TP_POST_OVEN"].get("OPN_LIST", {}).split(","),
         "IEOL_BRINGUP"  : config["IEOL_BRINGUP"].get("OPN_LIST", {}).split(","),
         "IEOL_S"        : config["IEOL_SHORT"].get("OPN_LIST", {}).split(","),
         "IEOL_L"        : config["IEOL_LONG"].get("OPN_LIST", {}).split(","),
@@ -116,4 +121,4 @@ def main():
     )
     print(f"Snapshot saved successfully: {snapshot_path}")
 if __name__ == "__main__":
-    main()
+    main()

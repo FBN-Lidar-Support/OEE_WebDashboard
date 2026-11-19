@@ -11,8 +11,7 @@ CSV_COLUMNS = [
     "Duration (hr)", "Status"
 ]
 STORE_TIME_FORMAT = "%d/%m/%Y %H:%M"
-# Production day boundary: 19:00 (night shift D-1 19:01 -> D 07:00, day shift D 07:01 -> D 19:00).
-PRODUCTION_DAY_OFFSET = timedelta(hours=19)
+# Production day D = calendar day D (00:00 -> 24:00).
 API_TIME_FORMAT = "%Y-%m-%dT%H:%M"
 def _merge_intervals(intervals):
     merged = []
@@ -23,14 +22,13 @@ def _merge_intervals(intervals):
             merged.append((interval_start, interval_end))
     return merged
 def _hours_by_production_day(interval_start, interval_end):
-    """Split one interval by production day (19:00 -> 19:00) and remove break
+    """Split one interval by production day (00:00 -> 24:00) and remove break
     times, using the same breaks as the OEE calculation (query_downtime)."""
     result = {}
     cursor = interval_start
     while cursor < interval_end:
-        # 19:00 on D-1 .. 18:59 on D belongs to production day D.
-        production_day = (cursor - PRODUCTION_DAY_OFFSET + timedelta(days=1)).date()
-        next_boundary = datetime.combine(production_day, datetime.min.time()) + PRODUCTION_DAY_OFFSET
+        production_day = cursor.date()
+        next_boundary = datetime.combine(production_day + timedelta(days=1), datetime.min.time())
         segment_end = min(interval_end, next_boundary)
         seconds = (segment_end - cursor).total_seconds()
         for break_start, break_end in get_break_intervals(production_day):
@@ -313,10 +311,10 @@ class DowntimeStore:
             raise ValidationError("To Date cannot be before From Date.")
         if (last - first).days > 366:
             raise ValidationError("Date range cannot exceed 367 days.")
-        # Production day D = D-1 19:00 -> D 19:00 (night shift first),
+        # Production day D = D 00:00 -> D+1 00:00,
         # same window as src/etl/query_downtime.get_production_window().
-        start = first - timedelta(days=1) + PRODUCTION_DAY_OFFSET
-        end = last + PRODUCTION_DAY_OFFSET
+        start = first
+        end = last + timedelta(days=1)
         now = datetime.now()
         with self._machine_lock(machine):
             df = self._read_machine(machine).copy()
@@ -402,4 +400,4 @@ class DowntimeStore:
             "ranking": ranking_data,
             "columns": CSV_COLUMNS,
             "records": [record for _, record in records]
-        }
+        }

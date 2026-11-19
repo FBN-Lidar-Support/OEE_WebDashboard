@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, time
 from pathlib import Path
 
 SCHEMA_VERSION = 1
-PRODUCTION_END_TIME = time(19, 0)
+PRODUCTION_START_TIME = time(0, 0)  # production day = D 00:00 -> D+1 00:00
 
 def load_history_dir(config_path="config/config.ini"):
     config = ConfigParser()
@@ -102,11 +102,11 @@ def validate_snapshot_result(result):
 def build_snapshot(result, status="FINAL"):
     validate_snapshot_result(result)
     production_date = get_production_date(result)
-    period_end = datetime.combine(
+    period_start = datetime.combine(
         production_date,
-        PRODUCTION_END_TIME
+        PRODUCTION_START_TIME
     )
-    period_start = period_end - timedelta(days=1)
+    period_end = period_start + timedelta(days=1)
     snapshot = deepcopy(result)
     # Convert nested production_date to JSON-friendly ISO string.
     snapshot.setdefault("overall", {})
@@ -181,4 +181,4 @@ def save_daily_snapshot(
         snapshot,
         destination
     )
-    return destination
+    return destination

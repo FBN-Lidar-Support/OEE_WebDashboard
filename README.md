@@ -22,18 +22,18 @@ FITS (yield, first-pass, active time) ──────────────
 
 ## Production day
 
-One production day has two shifts, **night shift first**:
+One production day is one calendar day: production date **D** = D 00:00 → D+1 00:00.
 
-| Shift | Time (production date D) | Breaks |
-|-------|--------------------------|--------|
-| Night | D-1 19:01 → D 07:00 | 00:00–01:00, 04:30–05:00 |
-| Day   | D 07:01 → D 19:00   | 11:00–12:00, 16:30–17:00 |
-
-Example: production date **2026-11-16** = 2026-11-15 19:01 → 2026-11-16 19:00.
+Breaks (all on day D): 00:00–01:00, 04:30–05:00, 11:00–12:00, 16:30–17:00.
 Breaks total 3 hr, so `PLANNED_TIME = 21` hr.
 
+Example: production date **2026-11-16** = 2026-11-16 00:00 → 2026-11-17 00:00.
+
+> Snapshots created before this change (up to 2026-11-18) use the old window
+> (D-1 19:00 → D 19:00) and are not recalculated.
+
 `main_daily.py` runs at **08:00** and always calculates **yesterday's** production day.
-The dashboard switches to the new day automatically from 08:30.
+The dashboard checks the JSON folder every 1 minute and switches to the newest day as soon as its JSON appears.
 
 ## Formulas
 
@@ -54,8 +54,8 @@ Configured in `config/config.ini` (OPN list, `IDEAL_SPEED`, targets, FITS statio
 
 | Line | Processes | Machines |
 |------|-----------|----------|
-| AB2B | AB2B | AB2B01, AB2B02 |
-| AA | AA_FAS_SAS + AA_TP | AA01, AA02 |
+| AB2B | AB2B + AB2B_POST_TEST (same machines, different programs) | AB2B01, AB2B02 |
+| AA | AA_FAS_SAS + AA_FAS_SAS_POST_OVEN + AA_TP + AA_TP_POST_OVEN (same machines, different programs) | AA01, AA02 |
 | IEOL Bring-up / CRS | IEOL_BRINGUP + IEOL_CRS (same machines, different programs) | IEOL_BRINGUP_CRS01–03 |
 | IEOL Short | IEOL_SHORT | IEOL_SR01–03 |
 | IEOL Long | IEOL_LONG | IEOL_LR01–03 |

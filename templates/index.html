@@ -815,6 +815,49 @@ button,input { font-family:inherit; }
     border-radius:9px;
 }
 
+/* Ideal speed / cycles per group: two short rows in the title row
+   (2 x 16px fits the row height, so it adds no height to the page). */
+.detail-group-info {
+    flex:1 1 0;
+    min-width:0;
+    padding:0 20px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    gap:1px;
+    font-size:12px;
+    line-height:1.35;
+}
+
+.gi-row {
+    display:flex;
+    align-items:baseline;
+    overflow:hidden;
+    white-space:nowrap;
+}
+
+.gi-label {
+    flex:0 0 150px;
+    color:var(--text);
+    font-weight:700;
+}
+
+.gi-chip {
+    color:var(--muted);
+}
+
+.gi-chip + .gi-chip {
+    margin-left:16px;
+    padding-left:16px;
+    border-left:1px solid var(--border);
+}
+
+.gi-chip b {
+    margin-left:5px;
+    color:var(--text);
+    font-size:13px;
+}
+
 .detail-label {
     margin-bottom:3px;
     color:var(--muted);
@@ -1117,8 +1160,10 @@ button,input { font-family:inherit; }
                 Machine Detail
             </div>
 
+            <div id="detailGroupInfo" class="detail-group-info"></div>
+
             <div class="detail-period">
-                Production day: 19:00 → 19:00
+                Production day: 00:00 → 24:00
             </div>
         </div>
 
@@ -1163,11 +1208,9 @@ const API_TIMEOUT_MS = 10000;
 const DAY_HOURS = 24;
 
 const AUTO_CHECK_INTERVAL = 60000;
-// main_daily.py runs at 08:00 and writes the snapshot for YESTERDAY
-// (production day D-1 19:01 -> D 19:00). From 08:30 the page waits
-// for that snapshot and switches to it once it appears.
-const DAILY_SWITCH_HOUR = 8;
-const DAILY_SWITCH_MINUTE = 30;
+// main_daily.py writes the snapshot for YESTERDAY
+// (production day D 00:00 -> D+1 00:00). The page re-reads the JSON folder
+// every AUTO_CHECK_INTERVAL and switches to a new snapshot as soon as it appears.
 
 const NORMAL_COLOR = "#008b5a";
 const DOWNTIME_COLOR = "#dc2626";
@@ -1194,7 +1237,7 @@ let selectedDate = "";
 let calendarViewYear = 0;
 let calendarViewMonth = 0;
 
-let lastDailyAutoSwitch = "";
+let lastAutoLoadedDate = "";
 let autoCheckRunning = false;
 
 /* ================= DEMO DATA ================= */
@@ -1458,7 +1501,7 @@ async function initializeDashboard() {
         const loaded = await loadDashboard(selectedDate);
 
         if (loaded) {
-            markDailyAutoSwitchIfCurrent(selectedDate);
+            lastAutoLoadedDate = selectedDate;
         }
 
     } catch (error) {
@@ -1532,40 +1575,6 @@ function getLocalDateKey(now = new Date()) {
     );
 }
 
-function getExpectedLatestKey(now = new Date()) {
-    // Latest complete production day = yesterday.
-    const yesterday = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - 1
-    );
-    return getLocalDateKey(yesterday);
-}
-
-function hasReachedDailySwitchTime(
-    now = new Date()
-) {
-    return (
-        now.getHours() > DAILY_SWITCH_HOUR ||
-        (
-            now.getHours() === DAILY_SWITCH_HOUR &&
-            now.getMinutes() >= DAILY_SWITCH_MINUTE
-        )
-    );
-}
-
-function markDailyAutoSwitchIfCurrent(dateText) {
-    const now = new Date();
-    const todayKey = getLocalDateKey(now);
-
-    if (
-        hasReachedDailySwitchTime(now) &&
-        dateText === getExpectedLatestKey(now)
-    ) {
-        lastDailyAutoSwitch = todayKey;
-    }
-}
-
 async function checkForNewData() {
     if (autoCheckRunning) return;
 
@@ -1584,14 +1593,24 @@ async function checkForNewData() {
         latestAvailableDate =
             availableDates[availableDates.length - 1];
 
-        /*
-            Update Calendar only.
-            Do NOT change the date currently
-            selected by the user.
-        */
         renderCalendar();
 
-        await checkDailyLatestSwitch();
+        /*
+            A snapshot newer than the last one this page loaded
+            has appeared: switch to it. If the load fails,
+            lastAutoLoadedDate is unchanged, so the next check
+            (60 s) tries again. While no new snapshot appears,
+            the date the user selected is left alone.
+        */
+        if (latestAvailableDate !== lastAutoLoadedDate) {
+            const loaded = await selectProductionDate(
+                latestAvailableDate
+            );
+
+            if (loaded) {
+                lastAutoLoadedDate = latestAvailableDate;
+            }
+        }
 
     } catch (error) {
         console.warn(
@@ -1601,43 +1620,6 @@ async function checkForNewData() {
 
     } finally {
         autoCheckRunning = false;
-    }
-}
-
-async function checkDailyLatestSwitch() {
-    const now = new Date();
-    const todayKey = getLocalDateKey(now);
-
-    if (!hasReachedDailySwitchTime(now)) {
-        return;
-    }
-
-    if (lastDailyAutoSwitch === todayKey) {
-        return;
-    }
-
-    if (!latestAvailableDate) {
-        return;
-    }
-
-    /*
-        At 08:30+, wait until yesterday's JSON
-        (latest complete production day) exists.
-
-        If it has not arrived yet,
-        checkForNewData() will try again
-        every 60 seconds.
-    */
-    if (latestAvailableDate !== getExpectedLatestKey(now)) {
-        return;
-    }
-
-    const loaded = await selectProductionDate(
-        latestAvailableDate
-    );
-
-    if (loaded) {
-        lastDailyAutoSwitch = todayKey;
     }
 }
 
@@ -1871,18 +1853,9 @@ async function selectProductionDate(dateText) {
     renderCalendar();
     closeCalendar();
 
-    const loaded =
-        await loadDashboard(
-            selectedDate
-        );
-
-    if (loaded) {
-        markDailyAutoSwitchIfCurrent(
-            selectedDate
-        );
-    }
-
-    return loaded;
+    return await loadDashboard(
+        selectedDate
+    );
 }
 
 async function selectLatestDate() {
@@ -2468,7 +2441,7 @@ function renderMachineCards() {
                     )}
                 </strong><br>
 
-                Output:
+                Total Cycles:
                 <strong>
                     ${escapeHTML(
                         formatDetailValue(
@@ -3537,6 +3510,128 @@ function formatHours(value) {
         : `${number.toFixed(2)} hr`;
 }
 
+/*
+    One cycle = one run of a config group (counted once at its last OPN).
+    "AA_FAS_SAS 35 · AA_TP 47 ..." ; falls back to group names for
+    older snapshots that have no per-group counts.
+*/
+function formatCyclesByGroup(detail) {
+    const names =
+        Array.isArray(detail.processes)
+            ? detail.processes
+            : [];
+
+    if (!names.length) return null;
+
+    const steps =
+        isObject(detail.steps)
+            ? detail.steps
+            : {};
+
+    return names.map(
+        (name) => {
+            const step = steps[name];
+            const count =
+                isObject(step)
+                    ? step.total_last_opn
+                    : undefined;
+
+            return [
+                name,
+                count === undefined || count === null
+                    ? null
+                    : count
+            ];
+        }
+    );
+}
+
+/*
+    "AA_FAS_SAS 2.43, AA_TP 95.24 unit/hr"
+    -> [["AA_FAS_SAS","2.43"], ["AA_TP","95.24"]]
+    Returns null if the text is not in that form.
+*/
+function parseIdealSpeedPairs(text) {
+    const pairs =
+        String(text)
+            .replace(/\s*unit\s*\/\s*hrs?\.?\s*$/i, "")
+            .split(",")
+            .map(part => part.trim())
+            .filter(Boolean)
+            .map(part => part.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)$/));
+
+    return pairs.length && pairs.every(Boolean)
+        ? pairs.map(match => [match[1], match[2]])
+        : null;
+}
+
+function renderGroupInfo(speedPairs, cyclePairs) {
+    const box =
+        document.getElementById(
+            "detailGroupInfo"
+        );
+
+    box.replaceChildren();
+
+    const rows = [
+        ["Ideal Speed (unit/hr)", speedPairs],
+        ["Cycles by Group", cyclePairs]
+    ].filter(
+        ([, pairs]) => Array.isArray(pairs) && pairs.length
+    );
+
+    const tooltip = [];
+
+    rows.forEach(
+        ([label, pairs]) => {
+            const row =
+                document.createElement("div");
+            row.className = "gi-row";
+
+            const title =
+                document.createElement("span");
+            title.className = "gi-label";
+            title.textContent = label;
+            row.appendChild(title);
+
+            pairs.forEach(
+                ([name, value]) => {
+                    const chip =
+                        document.createElement("span");
+                    chip.className = "gi-chip";
+                    chip.append(
+                        document.createTextNode(name)
+                    );
+
+                    if (value !== null && value !== undefined) {
+                        const strong =
+                            document.createElement("b");
+                        strong.textContent = value;
+                        chip.appendChild(strong);
+                    }
+
+                    row.appendChild(chip);
+                }
+            );
+
+            box.appendChild(row);
+
+            tooltip.push(
+                `${label}: ` +
+                pairs
+                    .map(([name, value]) =>
+                        value === null || value === undefined
+                            ? name
+                            : `${name} ${value}`)
+                    .join(", ")
+            );
+        }
+    );
+
+    // Full text on hover when a row is cut off on a narrow screen.
+    box.title = tooltip.join("\n");
+}
+
 function renderProductionDetail(machine) {
     const container =
         document.getElementById(
@@ -3550,48 +3645,53 @@ function renderProductionDetail(machine) {
             ? machine.detail
             : {};
 
+    // One short speed ("4.16 unit/hr") fits a normal box;
+    // several speeds (one per group) go to the title-row info line.
+    const idealSpeedText =
+        formatDetailValue(
+            detail.ideal_speed
+        );
+
+    const idealSpeedIsLong =
+        idealSpeedText.length > 20;
+
+    renderGroupInfo(
+        idealSpeedIsLong
+            ? (
+                parseIdealSpeedPairs(idealSpeedText) ||
+                [[idealSpeedText, null]]
+            )
+            : null,
+        formatCyclesByGroup(detail)
+    );
+
+    // Operating and Planned time are equal when there is no downtime,
+    // so they share one box: "21.00 / 21.00 hr".
+    const operatingText = formatHours(detail.operating_time);
+    const plannedText = formatHours(detail.planned_time);
+    const operatingPlannedText =
+        operatingText && plannedText
+            ? `${operatingText.replace(" hr", "")} / ${plannedText}`
+            : (operatingText || plannedText);
+
     const items = [
         [
-            "Input First OPN",
+            "Cycles Started",
             detail.input_first_opn
         ],
         [
-            "Output Last OPN",
-            detail.output_last_opn
-        ],
-        [
-            "Pass Last OPN",
+            "Cycles Passed",
             detail.pass_last_opn
         ],
         [
+            "Operating / Planned",
+            operatingPlannedText
+        ],
+        [
             "Ideal Speed",
-            detail.ideal_speed
-        ],
-        [
-            "Planned Time",
-            formatHours(detail.planned_time)
-        ],
-        [
-            "Operating Time",
-            formatHours(detail.operating_time)
-        ],
-        [
-            "FITS Active Time",
-            formatHours(detail.active_time)
-        ],
-        [
-            "Unknown Time",
-            formatHours(detail.unknown_time)
-        ],
-        [
-            "Ideal Time",
-            formatHours(detail.ideal_time)
-        ],
-        [
-            "Processes",
-            Array.isArray(detail.processes) && detail.processes.length
-                ? detail.processes.join(", ")
-                : null
+            idealSpeedIsLong
+                ? null
+                : detail.ideal_speed
         ]
     ];
 
@@ -3804,7 +3904,7 @@ function getProductionPeriod(
         };
     }
 
-    const end =
+    const start =
         new Date(
             Date.UTC(
                 parts.year,
@@ -3813,28 +3913,28 @@ function getProductionPeriod(
             )
         );
 
-    const start =
+    const end =
         new Date(
-            end.getTime() -
+            start.getTime() +
             24 *
             60 *
             60 *
             1000
         );
 
-    const startText =
+    const endText =
         buildDateText(
-            start.getUTCFullYear(),
-            start.getUTCMonth() + 1,
-            start.getUTCDate()
+            end.getUTCFullYear(),
+            end.getUTCMonth() + 1,
+            end.getUTCDate()
         );
 
     return {
         start:
-            `${startText} 19:00`,
+            `${dateText} 00:00`,
 
         end:
-            `${dateText} 19:00`
+            `${endText} 00:00`
     };
 }
 
@@ -4028,7 +4128,8 @@ function clearMachineDetail() {
         "donutLegend",
         "downtimeDetail",
         "insightList",
-        "productionDetail"
+        "productionDetail",
+        "detailGroupInfo"
     ].forEach(id => {
         document
             .getElementById(id)
@@ -4248,12 +4349,9 @@ document.addEventListener(
         Check new JSON dates
         every 60 seconds.
 
-        It only updates the Calendar
-        during normal operation.
-
-        At 08:30+ it automatically
-        switches to yesterday's snapshot
-        (latest production day) once it is available.
+        Re-reads the JSON date list every 60 s,
+        updates the Calendar, and switches to the
+        latest snapshot as soon as a new one appears.
     */
     setInterval(
         checkForNewData,

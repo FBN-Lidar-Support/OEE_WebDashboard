@@ -5,14 +5,13 @@ from pathlib import Path
 import pandas as pd
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.ini"
-# Production day D (night shift first, then day shift):
-#   Night shift : D-1 19:01 -> D 07:00
-#   Day shift   : D   07:01 -> D 19:00
-# Example: 2026-11-16 = 2026-11-15 19:01 -> 2026-11-16 19:00
-PRODUCTION_NIGHT_START = dt_time(19, 0)   # starts on the previous calendar day
-PRODUCTION_DAY_START = dt_time(7, 0)
-DAY_SHIFT_START = PRODUCTION_DAY_START
-NIGHT_SHIFT_START = PRODUCTION_NIGHT_START
+# Production day D = calendar day D, 00:00 -> 24:00 (D+1 00:00).
+# Example: 2026-11-16 = 2026-11-16 00:00 -> 2026-11-17 00:00
+# Shift is only a label on each downtime event:
+#   Day shift   : 07:00 -> 19:00
+#   Night shift : 19:00 -> 07:00
+DAY_SHIFT_START = dt_time(7, 0)
+NIGHT_SHIFT_START = dt_time(19, 0)
 REQUIRED_COLUMNS = [
     "Type Downtime", "Detail", "EN Check In", "Timestamp Check In",
     "EN Check Out", "Timestamp Check Out", "Status"
@@ -111,21 +110,19 @@ def read_all_downtime(issues: dict | None = None) -> pd.DataFrame:
 # 2. PRODUCTION WINDOW & BREAK TIME
 # ============================================================
 def get_production_window(production_date: date) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """D-1 19:00 -> D 19:00 (night shift first, then day shift)."""
-    start = pd.Timestamp(datetime.combine(
-        production_date - timedelta(days=1), PRODUCTION_NIGHT_START
-    ))
-    end = pd.Timestamp(datetime.combine(production_date, PRODUCTION_NIGHT_START))
+    """D 00:00 -> D+1 00:00 (one calendar day)."""
+    start = pd.Timestamp(datetime.combine(production_date, dt_time(0, 0)))
+    end = start + pd.Timedelta(days=1)
     return start, end
 def get_break_intervals(production_date: date) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
     # All breaks fall on calendar day D (total 3 hr -> PLANNED_TIME = 21).
     day = pd.Timestamp(production_date).normalize()
     return [
-        # Night Shift (D-1 19:01 -> D 07:00)
+        # 00:00-05:00
         (day, day + pd.Timedelta(hours=1)),
         (day + pd.Timedelta(hours=4, minutes=30),
          day + pd.Timedelta(hours=5)),
-        # Day Shift (D 07:01 -> D 19:00)
+        # 11:00-17:00
         (day + pd.Timedelta(hours=11), day + pd.Timedelta(hours=12)),
         (day + pd.Timedelta(hours=16, minutes=30),
          day + pd.Timedelta(hours=17))
@@ -311,4 +308,4 @@ def get_downtime_yesterday(issues: dict | None = None):
     downtime_data, downtime_type, downtime_df = get_downtime_by_date(
         production_date, issues
     )
-    return downtime_data, downtime_type, downtime_df, production_date
+    return downtime_data, downtime_type, downtime_df, production_date

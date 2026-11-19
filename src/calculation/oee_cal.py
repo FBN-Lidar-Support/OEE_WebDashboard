@@ -6,8 +6,8 @@ from platform import machine
 import re
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.ini"
 PROCESS_SETS = {
-    "AB2B": ("AB2B",),
-    "AA": ("AA_FAS_SAS", "AA_TP"),
+    "AB2B": ("AB2B", "AB2B_POST_TEST"),
+    "AA": ("AA_FAS_SAS", "AA_FAS_SAS_POST_OVEN", "AA_TP", "AA_TP_POST_OVEN"),
     "IEOL_Bringup_CRS": ("IEOL_BRINGUP", "IEOL_CRS"),
     "IEOL_SHORT": ("IEOL_SHORT",),
     "IEOL_LONG": ("IEOL_LONG",),
@@ -50,7 +50,7 @@ def _empty():
         "speeds": {}
     }
 def format_ideal_speed(speeds):
-    """{"AA_FAS_SAS": 2.43, "AA_TP": 5.41} -> "AA_FAS_SAS 2.43, AA_TP 5.41 unit/hr"."""
+    """{"AA_FAS_SAS": 2.43, "AA_TP": 95.24} -> "AA_FAS_SAS 2.43, AA_TP 95.24 unit/hr"."""
     if not speeds:
         return None
     if len(speeds) == 1:
@@ -352,4 +352,4 @@ def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_dat
             # Exact rows to fix in the downtime CSV (shown with the issue list).
             row["downtime_skipped_rows"] = skipped_rows.get(machine, [])
             result[machine] = row
-    return result
+    return result
