@@ -13,6 +13,7 @@ FITS_URL = os.getenv("FITS_URL", "https://service.fabrinet.co.th/FBNFITSService/
 PROJECT_ID = os.getenv("FITS_PROJECT_ID", "729")
 PROCESS_KEYS = {"IEOL_S": "IEOL_SHORT", "IEOL_L": "IEOL_LONG"}
 FIELDS = ("input_first_opn", "total_last_opn", "pass_last_opn", "duration_hr")
+
 # 1. FITS API
 def _query(session, method, opn="-", serial="-", parameters=""):
     """Send SOAP request and return XML."""
@@ -20,9 +21,15 @@ def _query(session, method, opn="-", serial="-", parameters=""):
     if not user or not password:
         raise RuntimeError("Set FITS_USER and FITS_PASSWORD in Windows Environment Variables")
     values = {
-        "project_id": PROJECT_ID, "user_name": user, "user_password": password,
-        "model": "Main line", "operation": opn, "revision": "2.9",
-        "serial": serial, "parameters": parameters, "fsp": ","
+        "project_id":    PROJECT_ID, 
+        "user_name":     user, 
+        "user_password": password,
+        "model":         "Main line", 
+        "operation":     opn, 
+        "revision":      "2.9",
+        "serial":        serial, 
+        "parameters":    parameters, 
+        "fsp":           ","
     }
     fields = "".join(f"<{key}>{escape(str(value))}</{key}>" for key, value in values.items())
     soap = (
@@ -73,8 +80,7 @@ def _opn_records(session, opn):
         try:
             root = _query(session, "fn_Query", opn, sn, "STATION_NAME,DURATION")
         except (requests.exceptions.RequestException, ET.ParseError):
-            records[sn] = {"result": result, "station_name": None,
-                           "duration_hr": 0.0, "reason": ["QUERY_FAILED"]}
+            records[sn] = {"result": result, "station_name": None, "duration_hr": 0.0, "reason": ["QUERY_FAILED"]}
             continue
         message = " ".join((node.text or "") for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "Message")
         station_match = re.search(r"(?:\d+_)?STATION_NAME\s*:\s*([^,;\r\n]+)", message, re.I)
@@ -115,6 +121,7 @@ def _settings(config, section):
     return opns, mapping
 def _empty():
     return dict.fromkeys(FIELDS, 0)
+
 # 4. MAIN YIELD CALCULATION
 def get_yield_yesterday(MC_DICT, config_path=CONFIG_PATH):
     """Return process totals, machine totals and uncount SNs."""
