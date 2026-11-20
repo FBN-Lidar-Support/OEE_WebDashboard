@@ -1,5 +1,4 @@
 from src.calculation.oee_cal import _machine_name
-
 # ==========================================================
 # Helper
 # ==========================================================
@@ -27,6 +26,20 @@ def hours_to_time(hours):
         return f"{h}:{m:02d}"
     except Exception:
         return "0:00"
+# Unknown time = planned time with no FITS run and no downtime keyed in
+# (operator forgot to record, material shortage, waiting ...). It is an
+# Availability loss, so the insight says so instead of just "reduce downtime".
+UNKNOWN_SHARE_NOTICE = 0.05   # mention when >= 5% of planned time
+UNKNOWN_ACTION = (
+    "Ask operators to key in downtime (e.g. material shortage, waiting for parts) "
+    "for the unexplained time."
+)
+def get_unknown_time(item):
+    """(unknown_hr, planned_hr, share_of_planned) of one machine result."""
+    detail = item.get("detail") or {}
+    unknown = safe_number(detail.get("unknown_time"))
+    planned = safe_number(detail.get("planned_time"))
+    return unknown, planned, (unknown / planned if planned > 0 else 0.0)
 def average(values):
     values = [safe_number(v) for v in values]
     if not values:
@@ -58,9 +71,11 @@ def get_top_downtime(downtime_data):
 def get_main_loss(oee_result):
     if not oee_result:
         return None
-    availability_loss = average(100 - safe_number(machine["availability"]) for machine in oee_result.values())
-    performance_loss = average(100 - safe_number(machine["performance"]) for machine in oee_result.values())
-    quality_loss = average(100 - safe_number(machine["quality"]) for machine in oee_result.values())
+    # A loss is never negative per machine (Performance > 100% must not
+    # cancel out other machines' losses).
+    availability_loss = average(max(100 - safe_number(machine["availability"]), 0) for machine in oee_result.values())
+    performance_loss = average(max(100 - safe_number(machine["performance"]), 0) for machine in oee_result.values())
+    quality_loss = average(max(100 - safe_number(machine["quality"]), 0) for machine in oee_result.values())
     losses = {
         "Availability": availability_loss,
         "Performance": performance_loss,
@@ -71,8 +86,6 @@ def get_main_loss(oee_result):
         "category": category,
         "value": round(losses[category], 2)
     }
-
-
 # ==========================================================
 # Overall Summary
 # ==========================================================
@@ -106,15 +119,33 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
         summary.append(f"Main loss : {main_loss['category']} ({main_loss['value']}%).")
     if top_dt_machine:
         summary.append(f"Highest downtime : {top_dt_machine} ({hours_to_time(top_dt)}).")
+    unknown_total = planned_total = 0.0
+    unknown_machines = 0
+    for item in oee_result.values():
+        unknown, planned, share = get_unknown_time(item)
+        unknown_total += unknown
+        planned_total += planned
+        if share >= UNKNOWN_SHARE_NOTICE:
+            unknown_machines += 1
+    unknown_share = unknown_total / planned_total if planned_total > 0 else 0.0
+    unknown_notable = unknown_share >= UNKNOWN_SHARE_NOTICE
+    if unknown_notable:
+        summary.append(
+            f"Unexplained time totaled {hours_to_time(unknown_total)} "
+            f"({round(unknown_share * 100, 1)}% of planned time) on {unknown_machines} machines."
+        )
     ####################################################
     # Focus
     ####################################################
     focus = []
     if top_dt_machine and top_dt > 0:
         focus.append(f"Reduce downtime on {top_dt_machine}")
+    if unknown_notable:
+        focus.append("Record reasons for unexplained time")
     if main_loss:
         if main_loss["category"] == "Availability":
-            focus.append("Improve machine uptime")
+            if not unknown_notable or top_dt > 0:
+                focus.append("Improve machine uptime")
         elif main_loss["category"] == "Performance":
             focus.append("Improve machine cycle time")
         else:
@@ -125,7 +156,9 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
     # Action
     ####################################################
     action = []
-    if top_dt_machine:
+    if unknown_notable:
+        action.append(UNKNOWN_ACTION)
+    if top_dt_machine and top_dt > 0:
         action.append(f"Assign Maintenance to investigate {top_dt_machine}.")
     if worst_machine:
         action.append(f"Review OEE loss of {worst_machine}.")
@@ -140,7 +173,6 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
         "best_machine": best_machine,
         "worst_machine": worst_machine
     }
-
 # ==========================================================
 # Machine Main Loss
 # ==========================================================
@@ -182,6 +214,9 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         performance = optional_number(item["performance"])
         quality = optional_number(item["quality"])
         downtime = safe_number(item.get("downtime", 0))  # ค่าที่ปรับด้วย FITS แล้ว ตรงกับ A
+        unknown, _planned, unknown_share = get_unknown_time(item)
+        unknown_notable = unknown_share >= UNKNOWN_SHARE_NOTICE
+        unknown_dominant = unknown_notable and unknown > downtime
         ####################################################
         loss_name, loss_value = get_machine_main_loss(item)
         ####################################################
@@ -203,13 +238,31 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         ####################################################
         if availability is not None and availability < item["target"]["availability"]:
             summary.append(f"Availability dropped to {availability}%.")
-            focus.append("Reduce downtime")
-            action.append("Review downtime records.")
+            if downtime > 0:
+                focus.append("Reduce downtime")
+                action.append("Review downtime records.")
+            if unknown_notable:
+                summary.append(
+                    f"Unexplained time was {hours_to_time(unknown)} "
+                    f"({round(unknown_share * 100, 1)}% of planned time): "
+                    "no run recorded in FITS and no downtime keyed in."
+                )
+                focus.append("Record reasons for unexplained time")
+                action.append(UNKNOWN_ACTION)
         ####################################################
         # Performance
         ####################################################
         if performance is None:
             summary.append("Performance could not be calculated.")
+        elif performance > 100:
+            summary.append(
+                f"Performance was {performance}% (over 100%): the machine ran faster "
+                "than the ideal speed set in config for its actual run time."
+            )
+            focus.append("Verify ideal speed")
+            action.append(
+                "Check IDEAL_SPEED in config and whether FITS DURATION covers the full run time."
+            )
         elif performance < item["target"]["performance"]:
             summary.append(f"Performance was {performance}%.")
             focus.append("Improve cycle time")
@@ -234,12 +287,18 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         # Main Loss
         ####################################################
         if loss_name:
-            summary.append(f"Main loss : {loss_name} ({loss_value}%).")
+            if loss_name == "Availability" and unknown_dominant:
+                summary.append(f"Main loss : Availability ({loss_value}%), mostly unexplained time.")
+            else:
+                summary.append(f"Main loss : {loss_name} ({loss_value}%).")
         ####################################################
         # Recommendation
         ####################################################
         if loss_name == "Availability":
-            action.append("Coordinate with Maintenance to improve equipment uptime.")
+            # Maintenance helps only with recorded downtime; unexplained time
+            # has no known cause yet.
+            if not unknown_dominant:
+                action.append("Coordinate with Maintenance to improve equipment uptime.")
         elif loss_name == "Performance":
             action.append("Optimize machine cycle time and eliminate minor stops.")
         elif loss_name == "Quality":
@@ -271,7 +330,6 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
             "data_quality_issues": item["data_quality_issues"] + item.get("downtime_skipped_rows", []),
         }
     return machines
-
 # ==========================================================
 # Daily Insight
 # ==========================================================

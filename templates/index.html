@@ -3645,25 +3645,37 @@ function renderProductionDetail(machine) {
             ? machine.detail
             : {};
 
-    // One short speed ("4.16 unit/hr") fits a normal box;
-    // several speeds (one per group) go to the title-row info line.
-    const idealSpeedText =
+    // Ideal Speed is always shown per group in the title-row info line.
+    // A single unnamed speed ("1.43 unit/hr") is paired with its only group.
+    const idealSpeedText = 
         formatDetailValue(
             detail.ideal_speed
         );
 
-    const idealSpeedIsLong =
-        idealSpeedText.length > 20;
+    let speedPairs = 
+        detail.ideal_speed
+        ? parseIdealSpeedPairs(idealSpeedText)
+        : null;
+    
+        if (!speedPairs && detail.ideal_speed) {
+            const onlyGroup = 
+                Array.isArray(detail.processes) && 
+                detail.processes.length === 1
+                    ? detail.processes[0]
+                    : null;
+            const speedNumber = 
+                idealSpeedText.match(/-?\d+(?:\.d+)?/);
 
-    renderGroupInfo(
-        idealSpeedIsLong
-            ? (
-                parseIdealSpeedPairs(idealSpeedText) ||
-                [[idealSpeedText, null]]
-            )
-            : null,
-        formatCyclesByGroup(detail)
-    );
+            speedPairs = 
+                onlyGroup && speedNumber
+                    ? [[onlyGruop, speedNumber[0]]]
+                    : [[idealSpeedText, null]];
+        }
+
+        renderGroupInfo(
+            speedPairs,
+            formatCyclesByGroup(detail)
+        );
 
     // Operating and Planned time are equal when there is no downtime,
     // so they share one box: "21.00 / 21.00 hr".
@@ -3686,12 +3698,6 @@ function renderProductionDetail(machine) {
         [
             "Operating / Planned",
             operatingPlannedText
-        ],
-        [
-            "Ideal Speed",
-            idealSpeedIsLong
-                ? null
-                : detail.ideal_speed
         ]
     ];
 

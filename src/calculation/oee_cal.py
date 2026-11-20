@@ -1,355 +1,343 @@
-"""Calculate OEE for each physical machine (no group OEE)."""
-import configparser
-import math
-from pathlib import Path
-from platform import machine
-import re
-CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.ini"
-PROCESS_SETS = {
-    "AB2B": ("AB2B", "AB2B_POST_TEST"),
-    "AA": ("AA_FAS_SAS", "AA_FAS_SAS_POST_OVEN", "AA_TP", "AA_TP_POST_OVEN"),
-    "IEOL_Bringup_CRS": ("IEOL_BRINGUP", "IEOL_CRS"),
-    "IEOL_SHORT": ("IEOL_SHORT",),
-    "IEOL_LONG": ("IEOL_LONG",),
-    "TPL01": ("TPL01",)
-}
-ALIASES = {"IEOL_S": "IEOL_SHORT", "IEOL_L": "IEOL_LONG"}
-COUNTS = ("input_first_opn", "total_last_opn", "pass_last_opn")
-def _number(value, name):
+from src.calculation.oee_cal import _machine_name
+# ==========================================================
+# Helper
+# ==========================================================
+def normalize_machine_keys(data):
+    """ORA#865871 AB2B01 -> AB2B01 ให้ตรงกับ oee_result"""
+    out = {}
+    for name, value in (data or {}).items():
+        key = _machine_name(name)
+        if key in out:
+            raise ValueError(f"Duplicate machine after normalize: {key}")
+        out[key] = value
+    return out
+def safe_number(value, default=0):
     try:
-        value = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"Invalid number: {name}")
-    if not math.isfinite(value) or value < 0:
-        raise ValueError(f"Invalid number: {name}")
-    return value
-def _machine_name(name):
-    name = str(name).strip().upper()
-    name = re.sub(r"^ORA#\d+\s+", "", name)
-    if name == "IEOL_BRINGUP_CRS":
-        return "IEOL_BRINGUP_CRS01"
-    return name
-def _section(config, name):
-    name = name.upper()
-    candidates = [name]
-    if name == "IEOL_SHORT":
-        candidates.append("IEOL_S")
-    elif name == "IEOL_LONG":
-        candidates.append("IEOL_L")
-    match = next((s for s in config.sections() if s.upper() in candidates), None)
-    if match is None:
-        raise ValueError(f"Missing config section: [{name}]")
-    return config[match]
-def _empty():
-    return {
-        **{field: 0 for field in COUNTS},
-        "duration_hr": 0.0,
-        "ideal_time": 0.0,
-        "good_ideal_time": 0.0,
-        "steps": {},
-        "speeds": {}
-    }
-def format_ideal_speed(speeds):
-    """{"AA_FAS_SAS": 2.43, "AA_TP": 95.24} -> "AA_FAS_SAS 2.43, AA_TP 95.24 unit/hr"."""
-    if not speeds:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+def hours_to_time(hours):
+    try:
+        total_minutes = round(float(hours) * 60)
+        h = total_minutes // 60
+        m = total_minutes % 60
+        return f"{h}:{m:02d}"
+    except Exception:
+        return "0:00"
+# Unknown time = planned time with no FITS run and no downtime keyed in
+# (operator forgot to record, material shortage, waiting ...). It is an
+# Availability loss, so the insight says so instead of just "reduce downtime".
+UNKNOWN_SHARE_NOTICE = 0.05   # mention when >= 5% of planned time
+UNKNOWN_ACTION = "Key in downtime reasons for the unexplained time."
+MAX_FOCUS = 2    # keep the insight panel short (dashboard must fit one page)
+MAX_ACTION = 2
+def get_unknown_time(item):
+    """(unknown_hr, planned_hr, share_of_planned) of one machine result."""
+    detail = item.get("detail") or {}
+    unknown = safe_number(detail.get("unknown_time"))
+    planned = safe_number(detail.get("planned_time"))
+    return unknown, planned, (unknown / planned if planned > 0 else 0.0)
+def average(values):
+    values = [safe_number(v) for v in values]
+    if not values:
+        return 0
+    return round(sum(values) / len(values), 2)
+# ==========================================================
+# Overall KPI
+# ==========================================================
+def get_overall_oee(oee_result):
+    return average(machine["oee"] for machine in oee_result.values())
+def get_total_downtime(downtime_data):
+    return round(sum(safe_number(v) for v in downtime_data.values()), 2)
+def get_best_machine(oee_result):
+    if not oee_result:
         return None
-    if len(speeds) == 1:
-        return f"{next(iter(speeds.values())):g} unit/hr"
-    return ", ".join(f"{process} {speed:g}" for process, speed in speeds.items()) + " unit/hr"
-def hours_to_time_format(hours):
-    minutes = round(hours * 60)
-    return f"{minutes // 60}:{minutes % 60:02d}"
-def reconcile_machine_time(planned_time, raw_downtime, active_time):
-    """FITS active time takes precedence over recorded downtime.
-    Unknown time is operating time not accounted for by FITS active duration.
-    The original downtime is retained; this does not modify source CSVs.
-    """
-    planned = _number(planned_time, "planned_time")
-    raw_dt = _number(raw_downtime, "raw_downtime")
-    active = _number(active_time, "active_time")
-    if planned <= 0:
-        raise ValueError("Planned Time must be positive")
-    if raw_dt > planned + 1e-6:
-        raise ValueError(f"Downtime {raw_dt} hr exceeds Planned Time {planned} hr")
-    if active > planned + 1e-6:
-        raise ValueError(f"Active Time {active} hr exceeds Planned Time {planned} hr")
-    raw_dt = min(raw_dt, planned)
-    active = min(active, planned)
-    operating = max(planned - raw_dt, active)
-    adjusted_dt = max(planned - operating, 0.0)
-    unknown = max(operating - active, 0.0)
+    return max(oee_result.items(), key=lambda item: safe_number(item[1]["oee"]))[0]
+def get_worst_machine(oee_result):
+    if not oee_result:
+        return None
+    return min(oee_result.items(), key=lambda item: safe_number(item[1]["oee"]))[0]
+def get_top_downtime(downtime_data):
+    if not downtime_data:
+        return None, 0
+    machine = max(downtime_data, key=downtime_data.get)
+    return (machine, round(safe_number(downtime_data[machine]), 2))
+# ==========================================================
+# Loss
+# ==========================================================
+def get_main_loss(oee_result):
+    if not oee_result:
+        return None
+    # A loss is never negative per machine (Performance > 100% must not
+    # cancel out other machines' losses).
+    availability_loss = average(max(100 - safe_number(machine["availability"]), 0) for machine in oee_result.values())
+    performance_loss = average(max(100 - safe_number(machine["performance"]), 0) for machine in oee_result.values())
+    quality_loss = average(max(100 - safe_number(machine["quality"]), 0) for machine in oee_result.values())
+    losses = {
+        "Availability": availability_loss,
+        "Performance": performance_loss,
+        "Quality": quality_loss
+    }
+    category = max(losses, key=losses.get)
     return {
-        "planned_time": planned,
-        "raw_downtime": raw_dt,
-        "downtime": adjusted_dt,
-        "operating_time": operating,
-        "active_time": active,
-        "unknown_time": unknown,
-        "downtime_adjustment": raw_dt - adjusted_dt
+        "category": category,
+        "value": round(losses[category], 2)
     }
-def build_time_bar_data(time_data, ideal_time, raw_types=None):
-    """Create per-machine, 21-hour stacked-bar data without double counting.
-    Raw downtime categories are recorded facts. When FITS active time overrides
-    downtime, category-level adjusted hours are estimates, not measured events.
-    """
-    planned = time_data["planned_time"]
-    raw_dt = time_data["raw_downtime"]
-    adjusted_dt = time_data["downtime"]
-    active = time_data["active_time"]
-    unknown = time_data["unknown_time"]
-    categories = {
-        str(name): _number(hours, f"downtime type {name}")
-        for name, hours in (raw_types or {}).items()
-        if _number(hours, f"downtime type {name}") > 0
-    }
-    raw_sum = sum(categories.values())
-    estimated = time_data["downtime_adjustment"] > 1e-6
-    if adjusted_dt <= 1e-9:
-        adjusted_types = {}
-        allocation = "NO_ADJUSTED_DOWNTIME"
-    elif categories and abs(raw_sum - raw_dt) <= 1e-4:
-        adjusted_types = {
-            name: adjusted_dt * hours / raw_sum
-            for name, hours in categories.items()
-        }
-        allocation = "PROPORTIONAL_ESTIMATE" if estimated else "RAW_TYPES_MATCH"
+# ==========================================================
+# Overall Summary
+# ==========================================================
+def generate_overall_summary(oee_result, downtime_data, production_date):
+    overall_oee = get_overall_oee(oee_result)
+    overall_target = average(machine["target"]["oee"] for machine in oee_result.values())
+    best_machine = get_best_machine(oee_result)
+    worst_machine = get_worst_machine(oee_result)
+    top_dt_machine, top_dt = get_top_downtime(downtime_data)
+    main_loss = get_main_loss(oee_result)
+    ####################################################
+    # Below Target
+    ####################################################
+    below_target = sum(1 for machine in oee_result.values() if safe_number(machine["oee"]) < safe_number(machine["target"]["oee"]))
+    ####################################################
+    # Summary
+    ####################################################
+    summary = []
+    if not oee_result:
+        summary.append("Overall OEE could not be calculated (no machine with complete data).")
+    elif overall_oee >= overall_target:
+        summary.append(f"Overall OEE achieved {overall_oee}% (Target {overall_target}%).")
     else:
-        adjusted_types = {"Unclassified Downtime": adjusted_dt}
-        allocation = "UNALLOCATED_TYPE_MISMATCH" if categories else "NO_TYPE_DATA"
-    segments = [
-        {
-            "key": f"downtime_{index}", "kind": "downtime", "label": name,
-            "hours": round(hours, 6), "estimated": estimated
-        }
-        for index, (name, hours) in enumerate(adjusted_types.items())
-        if hours > 1e-9
-    ]
-    segments.extend([
-        {"key": "active", "kind": "active", "label": "FITS Active", "hours": round(active, 6)},
-        {"key": "unknown", "kind": "unknown", "label": "Unknown / Unclassified", "hours": round(unknown, 6)}
-    ])
-    return {
-        "max_hours": round(planned, 6),
-        "raw_downtime": round(raw_dt, 6),
-        "downtime": round(adjusted_dt, 6),
-        "operating_time": round(time_data["operating_time"], 6),
-        "active_time": round(active, 6),
-        "unknown_time": round(unknown, 6),
-        "segments": segments,
-        "ideal_time": round(ideal_time, 6),
-        "raw_downtime_by_type": {k: round(v, 6) for k, v in categories.items()},
-        "adjusted_downtime_by_type": {k: round(v, 6) for k, v in adjusted_types.items()},
-        "allocation_method": allocation,
-        "downtime_adjustment": round(time_data["downtime_adjustment"], 6)
-    }
-def _metrics(data, downtime, planned, targets, weighted_quality, quality_ok, time_data=None, issues=None):
-    active = _number(data["duration_hr"], "duration_hr")
-    ideal = _number(data["ideal_time"], "ideal_time")
-    if time_data is None:
-        time_data = reconcile_machine_time(planned, downtime, active)
-    operating = time_data["operating_time"]
-    adjusted_dt = time_data["downtime"]
-    unknown = time_data["unknown_time"]
-    availability = operating / planned
-    # P = Pieces Produced / (Ideal Speed [pcs/hr] * Operating Time).
-    # For multiple processes/speeds, ideal = sum(output_i / speed_i).
-    performance = ideal / operating if operating > 0 else (0.0 if ideal == 0 else None)
-    # Q = Acceptable Pieces / Total Pieces.
-    numerator = _number(data["pass_last_opn"], "pass_last_opn")
-    denominator = _number(data["total_last_opn"], "total_last_opn")
-    quality = numerator / denominator if denominator > 0 else (0.0 if numerator == 0 else None)
-    issues = list(issues or [])
-    if active == 0 and ideal > 0:
-        issues.append("MISSING_FITS_ACTIVE_TIME")
-    if performance is None:
-        issues.append("PERFORMANCE_UNDEFINED")
-    elif performance > 1.000001:
-        issues.append("PERFORMANCE_OVER_100")
-    if quality is None:
-        issues.append("QUALITY_UNDEFINED")
-    elif quality > 1.000001:
-        issues.append("QUALITY_OVER_100")
-    quality_ok = bool(quality_ok and not issues)
-    # Checked AFTER all issues above are collected: if the machine's data is
-    # incomplete for any reason, A/P/Q must not show ACHIEVED / BELOW TARGET
-    # either (previously only OEE did, so e.g. Q showed ACHIEVED in green).
-    base_ok = quality_ok
-    oee =availability * performance * quality if performance is not None and quality is not None else None
-    percentages = {
-        "oee": round(oee * 100, 2) if oee is not None else None,
-        "availability": round(availability * 100, 2),
-        "performance": round(performance * 100, 2) if performance is not None else None,
-        "quality": round(quality * 100, 2) if quality is not None else None
-    }
-    names = {"oee": "oee", "availability": "a", "performance": "p", "quality": "q"}
-    incomplete = {
-        "oee": not quality_ok or percentages["oee"] is None,
-        "availability": not base_ok,
-        "performance": not base_ok or performance is None or performance > 1.000001,
-        "quality": not base_ok or quality is None or quality > 1.000001,
-    }
-    statuses = {
-        f"{short}_status": (
-            "DATA INCOMPLETE" if incomplete[name]
-            else "ACHIEVED" if percentages[name] >= targets[name]
-            else "BELOW TARGET"
+        summary.append(f"Overall OEE was {overall_oee}% ({round(overall_target-overall_oee,2)}% below target).")
+    summary.append(f"{below_target} of {len(oee_result)} machines were below target.")
+    if best_machine:
+        summary.append(f"Best machine : {best_machine} ({oee_result[best_machine]['oee']}%).")
+    if worst_machine:
+        summary.append(f"Worst machine : {worst_machine} ({oee_result[worst_machine]['oee']}%).")
+    if main_loss:
+        summary.append(f"Main loss : {main_loss['category']} ({main_loss['value']}%).")
+    if top_dt_machine and top_dt > 0:
+        summary.append(f"Highest downtime : {top_dt_machine} ({hours_to_time(top_dt)}).")
+    unknown_total = planned_total = 0.0
+    unknown_machines = 0
+    for item in oee_result.values():
+        unknown, planned, share = get_unknown_time(item)
+        unknown_total += unknown
+        planned_total += planned
+        if share >= UNKNOWN_SHARE_NOTICE:
+            unknown_machines += 1
+    unknown_share = unknown_total / planned_total if planned_total > 0 else 0.0
+    unknown_notable = unknown_share >= UNKNOWN_SHARE_NOTICE
+    if unknown_notable:
+        summary.append(
+            f"Unexplained time: {hours_to_time(unknown_total)} "
+            f"({round(unknown_share * 100, 1)}%) on {unknown_machines} machines."
         )
-        for name, short in names.items()
-    }
-    detail = {
-        "input_first_opn": data["input_first_opn"],
-        "output_last_opn": data["total_last_opn"],
-        "pass_last_opn": data["pass_last_opn"],
-        "pieces_produced": data["total_last_opn"],
-        "acceptable_pieces": data["pass_last_opn"],
-        "total_pieces": data["total_last_opn"],
-        "planned_time": round(planned, 4),
-        "operating_time": round(operating, 4),
-        "active_time": round(active, 6),
-        "unknown_time": round(unknown, 6),
-        "non_active_time": round(unknown, 4),
-        "ideal_time": round(ideal, 6)
-    }
+    ####################################################
+    # Focus
+    ####################################################
+    focus = []
+    if top_dt_machine and top_dt > 0:
+        focus.append(f"Reduce downtime on {top_dt_machine}")
+    if unknown_notable:
+        focus.append("Record reasons for unexplained time")
+    if main_loss:
+        if main_loss["category"] == "Availability":
+            if not unknown_notable or top_dt > 0:
+                focus.append("Improve machine uptime")
+        elif main_loss["category"] == "Performance":
+            focus.append("Improve machine cycle time")
+        else:
+            focus.append("Reduce defect rate")
+    if worst_machine:
+        focus.append(f"Recover OEE of {worst_machine}")
+    ####################################################
+    # Action
+    ####################################################
+    action = []
+    if unknown_notable:
+        action.append(UNKNOWN_ACTION)
+    if top_dt_machine and top_dt > 0:
+        action.append(f"Assign Maintenance to investigate {top_dt_machine}.")
+    if worst_machine:
+        action.append(f"Review OEE loss of {worst_machine}.")
+    if main_loss:
+        action.append(f"Prioritize {main_loss['category']} improvement.")
+    ####################################################
     return {
-        **percentages,
-        "raw_downtime": round(time_data["raw_downtime"], 6),
-        "downtime": round(adjusted_dt, 6),
-        "adjusted_downtime": round(adjusted_dt, 6),
-        "downtime_adjustment": round(time_data["downtime_adjustment"], 6),
-        "downtime_display": hours_to_time_format(adjusted_dt),
-        "target": targets,
-        **statuses,
-        "data_quality_ok": quality_ok,
-        "data_quality_issues": issues,
-        "detail": detail
+        "production_date": production_date,
+        "summary": list(dict.fromkeys(summary)),
+        "focus": list(dict.fromkeys(focus))[:MAX_FOCUS],
+        "action": list(dict.fromkeys(action))[:MAX_ACTION],
+        "best_machine": best_machine,
+        "worst_machine": worst_machine
     }
-def calculate_oee(downtime_data, yield_data, Active_time=None, downtime_type_data=None,
-                  downtime_issues=None):
-    """Return a flat dictionary of OEE results keyed by physical machine.
-
-    ``downtime_issues``: optional {machine: [message, ...]} of downtime rows the
-    ETL skipped as invalid; those machines are marked DATA INCOMPLETE.
-    """
-    skipped_rows = {}
-    for name, messages in (downtime_issues or {}).items():
-        if messages:
-            skipped_rows.setdefault(_machine_name(name), []).extend(messages)
-    config = configparser.ConfigParser(interpolation=None)
-    if not config.read(CONFIG_PATH, encoding="utf-8-sig"):
-        raise FileNotFoundError(f"Cannot read config: {CONFIG_PATH}")
-    yields = {}
-    for key, value in yield_data.items():
-        name = ALIASES.get(str(key).upper(), str(key).upper())
-        if name in yields:
-            raise ValueError(f"Duplicate yield process: {name}")
-        yields[name] = value
-    downtime = {}
-    for name, hours in downtime_data.items():
-        machine = _machine_name(name)
-        if machine in downtime:
-            raise ValueError(f"Duplicate downtime machine: {machine}")
-        downtime[machine] = _number(hours, f"{name} downtime")
-    downtime_types = {}
-    for name, types in (downtime_type_data or {}).items():
-        machine = _machine_name(name)
-        if machine in downtime_types:
-            raise ValueError(f"Duplicate downtime type machine: {machine}")
-        if not isinstance(types, dict):
-            raise ValueError(f"Invalid downtime type data for {name}")
-        downtime_types[machine] = types
-    result = {}
-    for set_name, processes in PROCESS_SETS.items():
-        present = [p for p in processes if p in yields]
-        if not present:
-            continue
-        missing = [p for p in processes if p not in yields]
-        settings = _section(config, "AA_TP" if set_name == "AA" else present[0])
-        planned_each = _number(settings.get("PLANNED_TIME", "21"), "PLANNED_TIME")
-        if planned_each <= 0:
-            raise ValueError(f"Invalid PLANNED_TIME for {set_name}")
-        targets = {
-            "oee": settings.getfloat("TARGET_OEE", fallback=85),
-            "availability": settings.getfloat("TARGET_A", fallback=95),
-            "performance": settings.getfloat("TARGET_P", fallback=85),
-            "quality": settings.getfloat("TARGET_Q", fallback=98)
-        }
-        machines = {}
-        machine_issues = {}
-        for process in present:
-            item = yields[process]
-            cfg = _section(config, process)
-            speed = _number(cfg.get("IDEAL_SPEED", "0"), f"{process} IDEAL_SPEED")
-            if speed <= 0:
-                raise ValueError(f"Invalid IDEAL_SPEED for {process}")
-            process_issues = []
-            if not item.get("data_quality_ok", True):
-                process_issues.append(f"FITS_DATA_QUALITY:{process}")
-            if item.get("uncount"):
-                process_issues.append(f"UNCOUNT:{process}")
-            for field in (COUNTS if not item.get("uncount") else ()):
-                total = sum(
-                    _number(values[field], f"{process}.{field}")
-                    for values in item["machines"].values()
+# ==========================================================
+# Machine Main Loss
+# ==========================================================
+def optional_number(value):
+    """Return float, or None when the KPI could not be calculated."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+def get_machine_main_loss(machine):
+    losses = {
+        name: max(100 - value, 0)
+        for name, value in (
+            ("Availability", optional_number(machine["availability"])),
+            ("Performance", optional_number(machine["performance"])),
+            ("Quality", optional_number(machine["quality"]))
+        )
+        if value is not None
+    }
+    if not losses:
+        return (None, None)
+    category = max(losses, key=losses.get)
+    return (category, round(losses[category], 2))
+# ==========================================================
+# Machine Summary
+# ==========================================================
+def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dict):
+    machines = {}
+    for name, item in oee_result.items():
+        ####################################################
+        # KPI
+        ####################################################
+        # Keep None (not 0) for KPIs that cannot be calculated,
+        # so the dashboard shows "-" instead of a fake 0%.
+        oee = optional_number(item["oee"])
+        availability = optional_number(item["availability"])
+        performance = optional_number(item["performance"])
+        quality = optional_number(item["quality"])
+        downtime = safe_number(item.get("downtime", 0))  # ค่าที่ปรับด้วย FITS แล้ว ตรงกับ A
+        unknown, _planned, unknown_share = get_unknown_time(item)
+        unknown_notable = unknown_share >= UNKNOWN_SHARE_NOTICE
+        unknown_dominant = unknown_notable and unknown > downtime
+        ####################################################
+        loss_name, loss_value = get_machine_main_loss(item)
+        ####################################################
+        summary = []
+        focus = []
+        action = []
+        ####################################################
+        # OEE
+        ####################################################
+        if oee is None or not item.get("data_quality_ok", True):
+            issues = ", ".join(item.get("data_quality_issues", []))
+            summary.append(f"Data incomplete ({issues}).")
+        elif oee >= item["target"]["oee"]:
+            summary.append(f"OEE achieved {oee}% and met the target.")
+        else:
+            summary.append(f"OEE was {oee}%, below target.")
+        ####################################################
+        # Availability
+        ####################################################
+        if availability is not None and availability < item["target"]["availability"]:
+            if unknown_notable:
+                summary.append(
+                    f"Availability {availability}%: {hours_to_time(unknown)} "
+                    f"({round(unknown_share * 100, 1)}%) unexplained (no run, no downtime keyed)."
                 )
-                if abs(total - _number(item[field], f"{process}.{field}")) > 1e-6:
-                    process_issues.append(f"YIELD_TOTAL_MISMATCH:{process}.{field}")
-            duration_total = sum(
-                _number(values["duration_hr"], f"{process}.duration_hr")
-                for values in item["machines"].values()
-            )
-            if abs(duration_total - _number(item["duration_hr"], f"{process}.duration_hr")) > 1e-4:
-                process_issues.append(f"FITS_DURATION_MISMATCH:{process}")
-            for name, values in item["machines"].items():
-                machine = _machine_name(name)
-                stats = machines.setdefault(machine, _empty())
-                issues = machine_issues.setdefault(machine, [])
-                for issue in process_issues:
-                    if issue not in issues:
-                        issues.append(issue)
-                for field in COUNTS:
-                    stats[field] += _number(values[field], f"{machine}.{field}")
-                stats["duration_hr"] += _number(values["duration_hr"], f"{machine}.duration_hr")
-                produced = _number(values["total_last_opn"], f"{machine}.total_last_opn")
-                stats["ideal_time"] += produced / speed
-                stats["good_ideal_time"] += _number(values["pass_last_opn"], f"{machine}.pass") / speed
-                stats["steps"][process] = dict(values)
-                stats["speeds"][process] = speed
-        if not machines:
-            raise ValueError(f"No machines in yield data for {set_name}")
-        for machine, stats in sorted(machines.items()):
-            if machine in result:
-                raise ValueError(f"Machine appears in multiple process sets: {machine}")
-            issues = machine_issues[machine]
-            for process in missing:
-                issues.append(f"MISSING_PROCESS:{process}")
-            if machine not in downtime:
-                # No downtime CSV for this machine: assume 0 hr but flag it,
-                # instead of failing the whole daily report.
-                issues.append("MISSING_DOWNTIME_FILE")
-            if machine in skipped_rows:
-                issues.append(f"DOWNTIME_ROWS_SKIPPED:{len(skipped_rows[machine])}")
-            raw_dt = downtime.get(machine, 0.0)
-            active = stats["duration_hr"]
-            if raw_dt > planned_each + 1e-6:
-                issues.append("DOWNTIME_EXCEEDS_PLANNED")
-            if active > planned_each + 1e-6:
-                issues.append("ACTIVE_EXCEEDS_PLANNED")
-            stats["duration_hr"] = min(active, planned_each)
-            time_data = reconcile_machine_time(
-                planned_each, min(raw_dt, planned_each), stats["duration_hr"]
-            )
-            row = _metrics(
-                stats, raw_dt, planned_each, targets,
-                False, not issues, time_data, issues
-            )
-            row["detail"]["steps"] = stats["steps"]
-            row["detail"]["processes"] = sorted(stats["steps"])
-            row["detail"]["ideal_speed"] = format_ideal_speed(stats["speeds"])
-            row["time_bar"] = build_time_bar_data(
-                time_data, stats["ideal_time"], downtime_types.get(machine)
-            )
-            row["missing_processes"] = missing
-            # Exact rows to fix in the downtime CSV (shown with the issue list).
-            row["downtime_skipped_rows"] = skipped_rows.get(machine, [])
-            result[machine] = row
-    return result
+            else:
+                summary.append(f"Availability dropped to {availability}%.")
+            if downtime > 0:
+                focus.append("Reduce downtime")
+                action.append("Review downtime records.")
+            if unknown_notable:
+                focus.append("Record reasons for unexplained time")
+                action.append(UNKNOWN_ACTION)
+        ####################################################
+        # Performance
+        ####################################################
+        if performance is None:
+            summary.append("Performance could not be calculated.")
+        elif performance > 100:
+            summary.append(f"Performance {performance}% (>100%): faster than config IDEAL_SPEED.")
+            focus.append("Verify ideal speed")
+            action.append("Check IDEAL_SPEED and FITS DURATION.")
+        elif performance < item["target"]["performance"]:
+            summary.append(f"Performance was {performance}%.")
+            focus.append("Improve cycle time")
+            action.append("Review machine speed and operator loading.")
+        ####################################################
+        # Quality
+        ####################################################
+        if quality is None:
+            summary.append("Quality could not be calculated.")
+        elif quality < item["target"]["quality"]:
+            summary.append(f"Quality was {quality}%.")
+            focus.append("Reduce defects")
+            action.append("Investigate NG trend.")
+        ####################################################
+        # Downtime
+        ####################################################
+        if downtime > 0:
+            summary.append(f"Downtime totaled {hours_to_time(downtime)}.")
+        elif not unknown_notable:
+            summary.append("No downtime was recorded.")
+        ####################################################
+        # Main Loss
+        ####################################################
+        if loss_name:
+            if not (loss_name == "Availability" and unknown_dominant):  # already stated above
+                summary.append(f"Main loss : {loss_name} ({loss_value}%).")
+        ####################################################
+        # Recommendation
+        ####################################################
+        if loss_name == "Availability":
+            # Maintenance helps only with recorded downtime; unexplained time
+            # has no known cause yet.
+            if not unknown_dominant:
+                action.append("Coordinate with Maintenance to improve equipment uptime.")
+        elif loss_name == "Performance":
+            action.append("Optimize machine cycle time and eliminate minor stops.")
+        elif loss_name == "Quality":
+            action.append("Perform root cause analysis for defects.")
+        ####################################################
+        machines[name] = {
+            "oee": oee,
+            "availability": availability,
+            "performance": performance,
+            "quality": quality,
+            "downtime": hours_to_time(downtime),
+            "downtime_detail": downtime_type.get(name, {}),
+            "target": item["target"],
+            "OEE_status": item["oee_status"],
+            "A_status": item["a_status"],
+            "P_status": item["p_status"],
+            "Q_status": item["q_status"],
+            "main_loss": {
+                "category": loss_name,
+                "value": loss_value
+            },
+            "summary": list(dict.fromkeys(summary)),
+            "focus": list(dict.fromkeys(focus))[:MAX_FOCUS],
+            "action": list(dict.fromkeys(action))[:MAX_ACTION],
+            "detail": item["detail"],
+            "time_bar": item["time_bar"],
+            "data_quality_ok": item["data_quality_ok"],
+            # Issue codes + exact downtime CSV rows that were skipped (file/row to fix).
+            "data_quality_issues": item["data_quality_issues"] + item.get("downtime_skipped_rows", []),
+        }
+    return machines
+# ==========================================================
+# Daily Insight
+# ==========================================================
+def generate_daily_insight(oee_result, downtime_data, downtime_type, production_date):
+    downtime_data = normalize_machine_keys(downtime_data)
+    downtime_type = normalize_machine_keys(downtime_type)
+    # นับ downtime เฉพาะเครื่องที่มี OEE (ลบบรรทัดนี้ถ้าอยากรวมสถานีอื่น เช่น TP01, Screwing)
+    downtime_data = {k: v for k, v in downtime_data.items() if k in oee_result}
+    # เครื่องที่ OEE คำนวณไม่ได้ (None) ไม่เอามาเฉลี่ย (ดูแก้ 3)
+    valid = {k: v for k, v in oee_result.items() if v["oee"] is not None}
+    overall = generate_overall_summary(oee_result=valid, downtime_data=downtime_data, production_date=production_date)
+    overall["excluded_machines"] = sorted(set(oee_result) - set(valid))
+    machines = generate_machine_summary(oee_result=oee_result, downtime_data=downtime_data, downtime_type=downtime_type)
+    dashboard = {
+        "overall": overall,
+        "machines": machines
+    }
+    return dashboard
