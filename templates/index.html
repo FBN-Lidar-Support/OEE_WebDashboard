@@ -913,14 +913,14 @@ button,input { font-family:inherit; }
         display:grid;
         grid-template-columns: minmax(0,1fr);
         /* status / overall / machine cards / machine detail */
-        grid-template-rows:auto auto auto minmax(0,1fr);
+        grid-template-rows:auto auto minmax(0,1fr);
         /* If the screen is too short, scroll instead of overlapping. */
         overflow-x:hidden;
         overflow-y:auto;
     }
 
     .status-line { margin-bottom:8px; }
-    #overallSection { margin-bottom:8px; }
+    #overallSection { display:none; }
     #machineSection { margin-bottom:8px; min-width: 0;}
     #detailSection { min-width: 0;}
 
@@ -937,14 +937,15 @@ button,input { font-family:inherit; }
         display:grid;
         /* Detail panels grow to fill the screen but never shrink below
            their content, so nothing overlaps; the container scrolls instead. */
-        grid-template-rows:auto minmax(min-content,1fr) auto;
+        grid-template-rows:auto minmax(0,1fr) auto;
     }
 
-    .detail-grid { min-height:auto; }
+    .detail-grid { min-height:0; grid-template-rows:minmax(0,1fr); }
 
     .detail-grid .panel {
         height:auto;
-        min-height:auto;
+        min-height:0;
+        overflow:auto;
     }
 
     .production-detail {
