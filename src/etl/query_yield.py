@@ -13,7 +13,6 @@ FITS_URL = os.getenv("FITS_URL", "https://service.fabrinet.co.th/FBNFITSService/
 PROJECT_ID = os.getenv("FITS_PROJECT_ID", "729")
 PROCESS_KEYS = {"IEOL_S": "IEOL_SHORT", "IEOL_L": "IEOL_LONG"}
 FIELDS = ("input_first_opn", "total_last_opn", "pass_last_opn", "duration_hr")
-
 # 1. FITS API
 def _query(session, method, opn="-", serial="-", parameters=""):
     """Send SOAP request and return XML."""
@@ -88,7 +87,6 @@ def _opn_records(session, opn):
         station = station_match.group(1).strip().upper() if station_match else None
         seconds = float(duration_match.group(1)) if duration_match else None
         issues = []
-
         if not station:
             issues.append("STATION_NAME")
         if seconds is None:
@@ -121,7 +119,6 @@ def _settings(config, section):
     return opns, mapping
 def _empty():
     return dict.fromkeys(FIELDS, 0)
-
 # 4. MAIN YIELD CALCULATION
 def get_yield_yesterday(MC_DICT, config_path=CONFIG_PATH):
     """Return process totals, machine totals and uncount SNs."""

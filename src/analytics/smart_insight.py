@@ -30,10 +30,9 @@ def hours_to_time(hours):
 # (operator forgot to record, material shortage, waiting ...). It is an
 # Availability loss, so the insight says so instead of just "reduce downtime".
 UNKNOWN_SHARE_NOTICE = 0.05   # mention when >= 5% of planned time
-UNKNOWN_ACTION = (
-    "Ask operators to key in downtime (e.g. material shortage, waiting for parts) "
-    "for the unexplained time."
-)
+UNKNOWN_ACTION = "Key in downtime reasons for the unexplained time."
+MAX_FOCUS = 2    # keep the insight panel short (dashboard must fit one page)
+MAX_ACTION = 2
 def get_unknown_time(item):
     """(unknown_hr, planned_hr, share_of_planned) of one machine result."""
     detail = item.get("detail") or {}
@@ -117,7 +116,7 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
         summary.append(f"Worst machine : {worst_machine} ({oee_result[worst_machine]['oee']}%).")
     if main_loss:
         summary.append(f"Main loss : {main_loss['category']} ({main_loss['value']}%).")
-    if top_dt_machine:
+    if top_dt_machine and top_dt > 0:
         summary.append(f"Highest downtime : {top_dt_machine} ({hours_to_time(top_dt)}).")
     unknown_total = planned_total = 0.0
     unknown_machines = 0
@@ -131,8 +130,8 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
     unknown_notable = unknown_share >= UNKNOWN_SHARE_NOTICE
     if unknown_notable:
         summary.append(
-            f"Unexplained time totaled {hours_to_time(unknown_total)} "
-            f"({round(unknown_share * 100, 1)}% of planned time) on {unknown_machines} machines."
+            f"Unexplained time: {hours_to_time(unknown_total)} "
+            f"({round(unknown_share * 100, 1)}%) on {unknown_machines} machines."
         )
     ####################################################
     # Focus
@@ -168,8 +167,8 @@ def generate_overall_summary(oee_result, downtime_data, production_date):
     return {
         "production_date": production_date,
         "summary": list(dict.fromkeys(summary)),
-        "focus": list(dict.fromkeys(focus)),
-        "action": list(dict.fromkeys(action)),
+        "focus": list(dict.fromkeys(focus))[:MAX_FOCUS],
+        "action": list(dict.fromkeys(action))[:MAX_ACTION],
         "best_machine": best_machine,
         "worst_machine": worst_machine
     }
@@ -237,16 +236,17 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         # Availability
         ####################################################
         if availability is not None and availability < item["target"]["availability"]:
-            summary.append(f"Availability dropped to {availability}%.")
+            if unknown_notable:
+                summary.append(
+                    f"Availability {availability}%: {hours_to_time(unknown)} "
+                    f"({round(unknown_share * 100, 1)}%) unexplained (no run, no downtime keyed)."
+                )
+            else:
+                summary.append(f"Availability dropped to {availability}%.")
             if downtime > 0:
                 focus.append("Reduce downtime")
                 action.append("Review downtime records.")
             if unknown_notable:
-                summary.append(
-                    f"Unexplained time was {hours_to_time(unknown)} "
-                    f"({round(unknown_share * 100, 1)}% of planned time): "
-                    "no run recorded in FITS and no downtime keyed in."
-                )
                 focus.append("Record reasons for unexplained time")
                 action.append(UNKNOWN_ACTION)
         ####################################################
@@ -255,14 +255,9 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         if performance is None:
             summary.append("Performance could not be calculated.")
         elif performance > 100:
-            summary.append(
-                f"Performance was {performance}% (over 100%): the machine ran faster "
-                "than the ideal speed set in config for its actual run time."
-            )
+            summary.append(f"Performance {performance}% (>100%): faster than config IDEAL_SPEED.")
             focus.append("Verify ideal speed")
-            action.append(
-                "Check IDEAL_SPEED in config and whether FITS DURATION covers the full run time."
-            )
+            action.append("Check IDEAL_SPEED and FITS DURATION.")
         elif performance < item["target"]["performance"]:
             summary.append(f"Performance was {performance}%.")
             focus.append("Improve cycle time")
@@ -281,15 +276,13 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         ####################################################
         if downtime > 0:
             summary.append(f"Downtime totaled {hours_to_time(downtime)}.")
-        else:
+        elif not unknown_notable:
             summary.append("No downtime was recorded.")
         ####################################################
         # Main Loss
         ####################################################
         if loss_name:
-            if loss_name == "Availability" and unknown_dominant:
-                summary.append(f"Main loss : Availability ({loss_value}%), mostly unexplained time.")
-            else:
+            if not (loss_name == "Availability" and unknown_dominant):  # already stated above
                 summary.append(f"Main loss : {loss_name} ({loss_value}%).")
         ####################################################
         # Recommendation
@@ -321,8 +314,8 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
                 "value": loss_value
             },
             "summary": list(dict.fromkeys(summary)),
-            "focus": list(dict.fromkeys(focus)),
-            "action": list(dict.fromkeys(action)),
+            "focus": list(dict.fromkeys(focus))[:MAX_FOCUS],
+            "action": list(dict.fromkeys(action))[:MAX_ACTION],
             "detail": item["detail"],
             "time_bar": item["time_bar"],
             "data_quality_ok": item["data_quality_ok"],

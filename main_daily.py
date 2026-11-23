@@ -5,7 +5,6 @@ from src.etl.query_yield import get_yield_yesterday
 from src.calculation.oee_cal import calculate_oee
 from src.analytics.smart_insight import generate_daily_insight
 from src.storage.snapshot import save_daily_snapshot
-
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config" / "config.ini"
 config = configparser.ConfigParser()
@@ -13,7 +12,6 @@ config = configparser.ConfigParser()
 # Thai-locale server) cannot decode them.
 if not config.read(CONFIG_PATH, encoding="utf-8-sig"):
     raise FileNotFoundError(f"Cannot read config: {CONFIG_PATH}")
-
 def main():
     Machine_OPN = {
         "AB2B"          : config["AB2B"].get("OPN_LIST", {}).split(","),
@@ -30,7 +28,6 @@ def main():
         # Same machines as IEOL_BRINGUP (different program); combined in oee_cal.
         "IEOL_CRS"      : config["IEOL_CRS"].get("OPN_LIST", {}).split(","),
     }
-
     # 1. ดึงข้อมูล Downtime
     print("=" * 20, " downtime_data ", "=" * 20)
     # Bad downtime rows are skipped (not fatal) and listed here per machine;
@@ -49,7 +46,6 @@ def main():
         print(value)
     # print("====================== downtime df ======================")
     # print(downtime_df)
-
     # 2. ดึงข้อมูล Yield
     print("=" * 20, " Yield_data ", "=" * 20)
     yield_data = get_yield_yesterday(MC_DICT = Machine_OPN)
@@ -61,7 +57,6 @@ def main():
         print(f"Duration: {data['duration_hr']} hr")
         for machine, values in data["machines"].items():
             print(f"  {machine}: {values}")
-
     # 3. คำนวณ OEE
     print("=" * 20, " oee_result ", "=" * 20)
     oee_data = calculate_oee(
@@ -94,7 +89,6 @@ def main():
             print(f"  {name}: {hours:.3f} hr")
         if row["data_quality_issues"]:
             print(f"Data Quality Issues: {row['data_quality_issues']}")
-
     # 4. สร้าง Smart Insight / Dashboard Data
     print("=" * 20, " insights ", "=" * 20)
     insights = generate_daily_insight(
@@ -111,7 +105,6 @@ def main():
                 print(sub_value)
         else:
             print(value)
-
     # 5. บันทึก Daily JSON Snapshot
     print("=" * 20, " Save Snapshot ", "=" * 20)
     snapshot_path = save_daily_snapshot(
@@ -121,4 +114,4 @@ def main():
     )
     print(f"Snapshot saved successfully: {snapshot_path}")
 if __name__ == "__main__":
-    main()
+    main()
