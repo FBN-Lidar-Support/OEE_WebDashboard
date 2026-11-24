@@ -3648,30 +3648,31 @@ function renderProductionDetail(machine) {
 
     // Ideal Speed is always shown per group in the title-row info line.
     // A single unnamed speed ("1.43 unit/hr") is paired with its only group.
-    const idealSpeedText = 
+    const idealSpeedText =
         formatDetailValue(
             detail.ideal_speed
         );
-
-    let speedPairs = 
+    let speedPairs =
         detail.ideal_speed
-        ? parseIdealSpeedPairs(idealSpeedText)
-        : null;
-    
-        if (!speedPairs && detail.ideal_speed) {
-            const onlyGroup = 
-                Array.isArray(detail.processes) && 
-                detail.processes.length === 1
-                    ? detail.processes[0]
-                    : null;
-            const speedNumber = 
-                idealSpeedText.match(/-?\d+(?:\.d+)?/);
-
-            speedPairs = 
-                onlyGroup && speedNumber
-                    ? [[onlyGruop, speedNumber[0]]]
-                    : [[idealSpeedText, null]];
-        }
+            ? parseIdealSpeedPairs(idealSpeedText)
+            : null;
+    if (!speedPairs && detail.ideal_speed) {
+        const onlyGroup =
+            Array.isArray(detail.processes) &&
+            detail.processes.length === 1
+                ? detail.processes[0]
+                : null;
+        const speedNumber =
+            idealSpeedText.match(/-?\d+(?:\.\d+)?/);
+        speedPairs =
+            onlyGroup && speedNumber
+                ? [[onlyGroup, speedNumber[0]]]
+                : [[idealSpeedText, null]];
+    }
+    renderGroupInfo(
+        speedPairs,
+        formatCyclesByGroup(detail)
+    );
 
         renderGroupInfo(
             speedPairs,
