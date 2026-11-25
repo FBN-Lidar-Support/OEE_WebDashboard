@@ -3574,8 +3574,18 @@ function renderGroupInfo(speedPairs, cyclePairs) {
 
     box.replaceChildren();
 
+    // Show the rate and the time per cycle: "44.44/hr (1.4m)".
+    const speedWithTime = Array.isArray(speedPairs)
+        ? speedPairs.map(([name, value]) => {
+            const rate = Number(value);
+            if (!(rate > 0)) return [name, value];
+            const minutes = 60 / rate;
+            const perCycle = `${Math.round(3600 / rate)}s`;
+            return [name, `${value}/hr (${perCycle})`];
+        })
+        : speedPairs;
     const rows = [
-        ["Ideal Speed (unit/hr)", speedPairs],
+        ["Ideal Speed", speedWithTime],
         ["Cycles by Group", cyclePairs]
     ].filter(
         ([, pairs]) => Array.isArray(pairs) && pairs.length

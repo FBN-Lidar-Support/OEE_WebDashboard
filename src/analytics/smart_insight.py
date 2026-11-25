@@ -1,3 +1,4 @@
+import re
 from src.calculation.oee_cal import _machine_name
 # ==========================================================
 # Helper
@@ -39,6 +40,40 @@ def get_unknown_time(item):
     unknown = safe_number(detail.get("unknown_time"))
     planned = safe_number(detail.get("planned_time"))
     return unknown, planned, (unknown / planned if planned > 0 else 0.0)
+def _fmt_cycle_time(minutes):
+    return f"{round(minutes * 60)}s"
+def get_cycle_time_gap(item):
+    """Group with the biggest gap between actual and config time per cycle.
+    Actual  = FITS DURATION of the group / cycles   (what the machine really took)
+    Config  = 60 / IDEAL_SPEED of the group         (what config says it should take)
+    Returns (group, actual_min, config_min, percent_diff) or None.
+    """
+    detail = item.get("detail") or {}
+    text = re.sub(r"\s*unit\s*/\s*hrs?\.?\s*$", "", str(detail.get("ideal_speed") or ""), flags=re.I)
+    speeds = {}
+    for part in (p.strip() for p in text.split(",") if p.strip()):
+        match = re.match(r"^(.+?)\s+(-?\d+(?:\.\d+)?)$", part)
+        if match:
+            speeds[match.group(1)] = float(match.group(2))
+    if not speeds and len(detail.get("processes") or []) == 1:
+        number = re.search(r"-?\d+(?:\.\d+)?", text)
+        if number:
+            speeds[detail["processes"][0]] = float(number.group(0))
+    best = None
+    for group, step in (detail.get("steps") or {}).items():
+        cycles = safe_number(step.get("total_last_opn"))
+        speed = speeds.get(group, 0)
+        if cycles <= 0 or speed <= 0:
+            continue
+        actual = safe_number(step.get("duration_hr")) * 60 / cycles
+        config = 60 / speed
+        impact = abs(actual - config) * cycles   # minutes of difference in total
+        if best is None or impact > best[0]:
+            best = (impact, group, actual, config)
+    if best is None:
+        return None
+    _, group, actual, config = best
+    return group, actual, config, round((actual / config - 1) * 100)
 def average(values):
     values = [safe_number(v) for v in values]
     if not values:
@@ -255,11 +290,25 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
         if performance is None:
             summary.append("Performance could not be calculated.")
         elif performance > 100:
-            summary.append(f"Performance {performance}% (>100%): faster than config IDEAL_SPEED.")
+            gap = get_cycle_time_gap(item)
+            if gap:
+                summary.append(
+                    f"Performance {performance}% (>100%): {gap[0]} took {_fmt_cycle_time(gap[1])}/cycle "
+                    f"vs config {_fmt_cycle_time(gap[2])} ({gap[3]:+d}%)."
+                )
+            else:
+                summary.append(f"Performance {performance}% (>100%): faster than config IDEAL_SPEED.")
             focus.append("Verify ideal speed")
             action.append("Check IDEAL_SPEED and FITS DURATION.")
         elif performance < item["target"]["performance"]:
-            summary.append(f"Performance was {performance}%.")
+            gap = get_cycle_time_gap(item)
+            if gap:
+                summary.append(
+                    f"Performance {performance}%: {gap[0]} took {_fmt_cycle_time(gap[1])}/cycle "
+                    f"vs config {_fmt_cycle_time(gap[2])} ({gap[3]:+d}%)."
+                )
+            else:
+                summary.append(f"Performance was {performance}%.")
             focus.append("Improve cycle time")
             action.append("Review machine speed and operator loading.")
         ####################################################
