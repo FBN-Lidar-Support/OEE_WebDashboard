@@ -311,6 +311,12 @@ def generate_machine_summary(oee_result: dict, downtime_data, downtime_type: dic
                 summary.append(f"Performance was {performance}%.")
             focus.append("Improve cycle time")
             action.append("Review machine speed and operator loading.")
+        excluded = sum(
+            safe_number(step.get("cycles_excluded"))
+            for step in ((item.get("detail") or {}).get("steps") or {}).values()
+        )
+        if excluded:
+            summary.append(f"{int(excluded)} cycles took over 3x standard time (waiting/hold); counted at standard time.")
         ####################################################
         # Quality
         ####################################################
@@ -390,3 +396,4 @@ def generate_daily_insight(oee_result, downtime_data, downtime_type, production_
         "machines": machines
     }
     return dashboard
+
