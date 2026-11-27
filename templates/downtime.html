@@ -219,7 +219,7 @@ td{font-size:14px}
 <section class="panel history-panel">
 <div class="panel-title">
 <span>Daily Downtime Trend</span>
-<span class="meta">Downtime (hr) · Production Day 07:00–07:00</span>
+<span class="meta">Downtime (hr) · Production Day 00:00–24:00</span>
 </div>
 <div class="history-panel-content">
 <div class="trend-scroll">
@@ -634,6 +634,7 @@ async function historyLineChanged(){
     try{
         const data=await api(`/api/downtime/machines?line=${encodeURIComponent(line)}`);
         if(historyEl("historyLine").value!==line) return;
+        select.add(new Option("All Machines","__ALL__"));
         for(const machine of data.machines||[]) select.add(new Option(machine,machine));
         select.disabled=false;
     }catch(error){
@@ -817,7 +818,7 @@ async function searchHistory(){
         renderHistoryRanking(data.ranking);
         renderHistoryTable(data);
         historyEl("historyDownload").disabled=false;
-        historyStatus(`Showing ${data.machine} · ${data.from_date} to ${data.to_date} (production day 07:00–07:00)`);
+        historyStatus(`Showing ${data.machine==="ALL"?"all machines":data.machine} · ${data.from_date} to ${data.to_date} (production day 00:00–24:00)`);
     }catch(error){
         if(seq===historyRequest) historyStatus(error.message,true);
     }finally{

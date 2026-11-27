@@ -11,6 +11,8 @@ CSV_COLUMNS = [
     "Duration (hr)", "Status"
 ]
 STORE_TIME_FORMAT = "%d/%m/%Y %H:%M"
+# Machine value meaning "every machine in the line" (Downtime History only)
+ALL_MACHINES = "__ALL__"
 # Production day D = calendar day D (00:00 -> 24:00).
 API_TIME_FORMAT = "%Y-%m-%dT%H:%M"
 def _merge_intervals(intervals):
@@ -303,6 +305,52 @@ class DowntimeStore:
         except ValueError as e:
             raise ValidationError(f"Invalid {field}. Use YYYY-MM-DD.") from e
     def get_downtime_history(self, line, machine, from_date, to_date):
+        """History of one machine, or of every machine in the line (machine = ALL_MACHINES)."""
+        if str(machine or "").strip() != ALL_MACHINES:
+            return self._machine_history(line, machine, from_date, to_date)
+        line = self.validate_line(line)
+        parts = [
+            self._machine_history(line, name, from_date, to_date)
+            for name in self.list_machines(line)
+        ]
+        if not parts:
+            raise ValidationError("No machine in this line.")
+        # Combine: hours / events add up per type and per day; records sorted newest first.
+        type_hours, type_events, daily = {}, {}, {}
+        records = []
+        for part in parts:
+            for item in part["ranking"]:
+                type_hours[item["type"]] = type_hours.get(item["type"], 0.0) + item["hours"]
+                type_events[item["type"]] = type_events.get(item["type"], 0) + item["events"]
+            for item in part["trend"]:
+                daily[item["date"]] = daily.get(item["date"], 0.0) + item["hours"]
+            records.extend(part["records"])
+        def checkin_of(record):
+            try:
+                return datetime.strptime(record["Timestamp Check In"].strip(), STORE_TIME_FORMAT)
+            except ValueError:
+                return datetime.min
+        records.sort(key=checkin_of, reverse=True)
+        ranking = sorted(type_hours, key=lambda t: (-type_hours[t], t.casefold()))
+        return {
+            "line": line,
+            "machine": "ALL",
+            "from_date": parts[0]["from_date"],
+            "to_date": parts[0]["to_date"],
+            "summary": {
+                "total_downtime_hr": round(sum(daily.values()), 4),
+                "total_events": sum(type_events.values()),
+                "top_downtime_type": ranking[0] if ranking else None
+            },
+            "trend": [{"date": day, "hours": round(hours, 4)} for day, hours in sorted(daily.items())],
+            "ranking": [
+                {"type": t, "hours": round(type_hours[t], 4), "events": type_events[t]}
+                for t in ranking
+            ],
+            "columns": CSV_COLUMNS,
+            "records": records
+        }
+    def _machine_history(self, line, machine, from_date, to_date):
         line = self.validate_line(line)
         machine = self.validate_machine(machine, line)
         first = self._history_date(from_date, "From Date")
@@ -400,4 +448,4 @@ class DowntimeStore:
             "ranking": ranking_data,
             "columns": CSV_COLUMNS,
             "records": [record for _, record in records]
-        }
+        }
